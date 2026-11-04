@@ -40,14 +40,14 @@ object UpdateManager {
     /** Automatic checks (app start/resume) reuse the last answer this long; "Check now" forces. */
     private const val CHECK_COOLDOWN_MS = 6L * 60 * 60 * 1000
 
-    private const val PREFS = "newtermux_update"
+    private const val PREFS = "betermux_update"
     private const val PREF_NOTIFY = "update_notify_enabled"
     private const val PREF_SKIP = "update_skip_version"
     private const val PREF_LAST_CHECK = "update_last_check"
     private const val PREF_INCLUDE_PRE = "update_include_prereleases"
     private const val PREF_PRETEND_OLD = "update_test_pretend_old"
-    private const val CACHE_NAME = "update_latest.json"
-    private const val CACHE_PRE_NAME = "update_latest_pre.json"
+    private const val CACHE_NAME = "betermux_update_latest.json"
+    private const val CACHE_PRE_NAME = "betermux_update_latest_pre.json"
     private const val FILE_PROVIDER_SUFFIX = ".updates"
     private const val DOWNLOAD_DIR = "updates"
 
