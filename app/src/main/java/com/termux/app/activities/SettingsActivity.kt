@@ -822,14 +822,23 @@ private fun openAbout(context: Context) {
     ReportActivity.startReportActivity(context, reportInfo)
 }
 
+private fun getTarBinary(): String? {
+    val termuxTar = File(TermuxConstants.TERMUX_PREFIX_DIR_PATH, "bin/tar")
+    if (termuxTar.exists() && termuxTar.canExecute()) return termuxTar.absolutePath
+    val systemTar = File("/system/bin/tar")
+    if (systemTar.exists() && systemTar.canExecute()) return systemTar.absolutePath
+    return null
+}
+
 private fun runBackup(context: Context, uri: Uri, full: Boolean): String? {
     return try {
+        val tar = getTarBinary() ?: return "tar binary not found"
         val cmd = if (full) arrayOf(
-            "/data/data/com.termux/files/usr/bin/tar", "-zcf", "-",
-            "-C", "/data/data/com.termux/files", "./home", "./usr",
+            tar, "-zcf", "-",
+            "-C", TermuxConstants.TERMUX_FILES_DIR_PATH, "./home", "./usr",
         ) else arrayOf(
-            "/data/data/com.termux/files/usr/bin/tar", "-zcf", "-",
-            "-C", "/data/data/com.termux/files/home", ".",
+            tar, "-zcf", "-",
+            "-C", TermuxConstants.TERMUX_HOME_DIR_PATH, ".",
         )
         val p = Runtime.getRuntime().exec(cmd)
         p.inputStream.use { input ->
@@ -848,6 +857,7 @@ private fun runBackup(context: Context, uri: Uri, full: Boolean): String? {
 
 private fun runRestore(context: Context, fileUri: Uri, full: Boolean): String? {
     return try {
+        val tar = getTarBinary() ?: return "tar binary not found"
         val filePath: String = if (fileUri.scheme == "content") {
             val tmp = File(context.cacheDir, "restore_tmp.tar.gz")
             context.contentResolver.openInputStream(fileUri).use { input ->
@@ -858,12 +868,10 @@ private fun runRestore(context: Context, fileUri: Uri, full: Boolean): String? {
         } else {
             fileUri.path ?: return "Invalid path"
         }
-        val p = if (full) Runtime.getRuntime().exec(arrayOf(
-            "/data/data/com.termux/files/usr/bin/tar", "-zxvf", filePath,
-            "-C", "/data/data/com.termux/files", "--recursive-unlink", "--preserve-permissions",
-        )) else Runtime.getRuntime().exec(arrayOf(
-            "/data/data/com.termux/files/usr/bin/tar", "-zxvf", filePath,
-            "-C", "/data/data/com.termux/files/home",
+        val targetDir = if (full) TermuxConstants.TERMUX_FILES_DIR_PATH else TermuxConstants.TERMUX_HOME_DIR_PATH
+        val p = Runtime.getRuntime().exec(arrayOf(
+            tar, "-zxvf", filePath,
+            "-C", targetDir,
         ))
         val errText = readStream(p.errorStream)
         val exit = p.waitFor()
