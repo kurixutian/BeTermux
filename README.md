@@ -1,13 +1,12 @@
-# NewTermux
+# BeTermux
 
-[![Latest release](https://img.shields.io/github/v/release/The412Banner/NewTermux?label=release)](https://github.com/The412Banner/NewTermux/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/kurixutian/BeTermux?label=release)](https://github.com/kurixutian/BeTermux/releases/latest)
 [![Android 7+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](#installation)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.md)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/n8S4G2WZQ4)
 
-A personal fork of [Termux](https://termux.dev) with a modernized **Jetpack Compose** interface and an extended feature set — accent theming, terminal color themes, and built-in package, file and SSH managers. It installs under the `com.termux` package, so it's a **drop-in replacement** for stock Termux and stays fully compatible with the entire [Termux package ecosystem](https://github.com/termux/termux-packages).
+BeTermux is a customized terminal emulator for Android with a modern Warp-inspired interface, tabbed workflow, integrated Dev Browser with Eruda DevTools, enhanced File Manager with multi-format previews, and process termination safety. It installs under `com.termux` and remains 100% compatible with the entire [Termux package ecosystem](https://github.com/termux/termux-packages).
 
-> **Latest stable:** `v1.6.0` — [**Download the APK →**](https://github.com/The412Banner/NewTermux/releases/latest)
+> **Latest stable:** `v1.0.0` — [**Download the APK →**](https://github.com/kurixutian/BeTermux/releases/latest)
 
 ---
 
@@ -56,21 +55,13 @@ A personal fork of [Termux](https://termux.dev) with a modernized **Jetpack Comp
 
 ## Installation
 
-**Requires Android 7.0+.** NewTermux installs as `com.termux`, so **uninstall any existing Termux app and its plugins first** (mixing sources fails with a signature error).
+**Requires Android 7.0+.** BeTermux installs under `com.termux` with a matching release signature, enabling a seamless in-place upgrade over NewTermux without losing your home directory, packages, or session data.
 
-Download the APK for your device from the [**latest release**](https://github.com/The412Banner/NewTermux/releases/latest):
+Download the APK from the [**latest release**](https://github.com/kurixutian/BeTermux/releases/latest):
 
-| APK | For |
-|-----|-----|
-| `arm64-v8a` | Most modern phones **(recommended)** |
-| `armeabi-v7a` | Older 32-bit devices |
-| `x86_64` / `x86` | Emulators and x86 devices |
-| `universal` | Any device (larger download) |
-
-### Try it before you switch
-The `newtermux-test-coexist_*.apk` build installs as a **separate** app (`com.termux.demo`) alongside your existing Termux. The full UI — settings, themes, toolbar, managers — works live, running a harmless demo shell (no real commands execute). Uninstall it and install the main build when you're ready to switch.
-
-> **Signing note:** GitHub APKs are signed with the shared Termux debug key, so NewTermux builds can update over one another but **not** over an F-Droid or Play Store Termux install. Switching sources requires a full uninstall first.
+| APK | Description |
+|-----|-------------|
+| `universal` | All-in-one upgrade APK for all CPU architectures |
 
 ---
 
@@ -79,29 +70,19 @@ The `newtermux-test-coexist_*.apk` build installs as a **separate** app (`com.te
 Requires **JDK 17** and the Android SDK.
 
 ```bash
-git clone https://github.com/The412Banner/NewTermux.git
-cd NewTermux
+git clone https://github.com/kurixutian/BeTermux.git
+cd BeTermux
 
-# Main app (installs as com.termux)
-./gradlew assembleDebug
-
-# Coexist demo build (installs as com.termux.demo)
-./gradlew assembleDemo
+# Release app (installs as com.termux)
+./gradlew assembleRelease
 ```
 
-Built APKs are written to `app/build/outputs/apk/`.
+Built APKs are written to `app/build/outputs/apk/release/`.
 
 ---
 
 ## Credits & license
 
-NewTermux is a fork of the [**Termux**](https://github.com/termux/termux-app) app by the Termux community. All credit for the terminal engine and Linux environment belongs upstream; for the packages installable inside the app, see [termux/termux-packages](https://github.com/termux/termux-packages).
+BeTermux is forked from [NewTermux](https://github.com/The412Banner/NewTermux) by The412Banner, based on the [**Termux**](https://github.com/termux/termux-app) open source project by Fredrik Fornwall, Henrik Grimler & the Termux community. All credit for the terminal engine and Linux environment belongs upstream.
 
-Licensed under the **GNU GPLv3** (same as upstream Termux). See [LICENSE.md](LICENSE.md).
-
----
-
-## Community
-
-- **Discord:** [discord.gg/n8S4G2WZQ4](https://discord.gg/n8S4G2WZQ4)
-- ☕ Support development on [Ko-fi](https://ko-fi.com/the412banner)
+Licensed under the **GNU GPLv3**. See [LICENSE.md](LICENSE.md).

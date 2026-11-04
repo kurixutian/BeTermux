@@ -242,7 +242,7 @@ fun UpdateHighlightsDialog(info: UpdateInfo, onLater: () -> Unit, onSkip: () -> 
                 }
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "Installing closes NewTermux: running commands stop. Your files, settings and tab layout are kept.",
+                    "Installing closes BeTermux: running commands stop. Your files, settings and tab layout are kept.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 15.sp,
                 )
                 Spacer(Modifier.height(6.dp))

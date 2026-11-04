@@ -146,7 +146,7 @@ object UpdateManager {
             c.connectTimeout = 15000
             c.readTimeout = 20000
             c.setRequestProperty("Accept", "application/vnd.github+json")
-            c.setRequestProperty("User-Agent", "NewTermux/${BuildConfig.VERSION_NAME}")
+            c.setRequestProperty("User-Agent", "BeTermux/${BuildConfig.VERSION_NAME}")
             if (c.responseCode == 200) c.inputStream.bufferedReader().use { it.readText() }
             else { Log.w(TAG, "GET $url -> HTTP ${c.responseCode}"); null }
         } finally {
@@ -174,14 +174,30 @@ object UpdateManager {
     /** Release asset name for this build: package variant (or demo) + the device's preferred ABI. */
     private fun pickAsset(assets: JSONArray?): JSONObject? {
         if (assets == null) return null
-        val prefix = if (BuildConfig.IS_DEMO) "newtermux-test-coexist_demo_"
-            else "termux-app_${BuildConfig.TERMUX_PACKAGE_VARIANT}-debug_"
-        val wanted = Build.SUPPORTED_ABIS.map { "$prefix$it.apk" } + "${prefix}universal.apk"
+        val prefixes = listOf(
+            "BeTermux-v",
+            "BeTermux-",
+            "termux-app_${BuildConfig.TERMUX_PACKAGE_VARIANT}-debug_",
+            "termux-app_${BuildConfig.TERMUX_PACKAGE_VARIANT}-release_"
+        )
+        val wanted = mutableListOf<String>()
+        for (prefix in prefixes) {
+            wanted.addAll(Build.SUPPORTED_ABIS.map { "$prefix$it.apk" })
+            wanted.add("${prefix}universal.apk")
+            wanted.add("${prefix}upgrade_universal.apk")
+            wanted.add("${prefix}release_universal.apk")
+        }
         for (name in wanted) {
             for (i in 0 until assets.length()) {
                 val a = assets.optJSONObject(i) ?: continue
                 if (a.optString("name") == name) return a
             }
+        }
+        // Fallback: match any .apk asset in the release if specific naming patterns differ
+        for (i in 0 until assets.length()) {
+            val a = assets.optJSONObject(i) ?: continue
+            val name = a.optString("name", "")
+            if (name.endsWith(".apk", ignoreCase = true)) return a
         }
         return null
     }
@@ -280,7 +296,7 @@ object UpdateManager {
             return
         }
         if (!canInstallPackages(activity)) {
-            Toast.makeText(activity, "Allow NewTermux to install apps, then tap Update again", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, "Allow BeTermux to install apps, then tap Update again", Toast.LENGTH_LONG).show()
             requestInstallPermission(activity)
             return
         }
@@ -288,7 +304,7 @@ object UpdateManager {
         interrupt.set(false)
         val dir = File(activity.cacheDir, DOWNLOAD_DIR).apply { mkdirs() }
         dir.listFiles()?.forEach { runCatching { it.delete() } }
-        val apk = File(dir, info.apkName ?: "NewTermux-update.apk")
+        val apk = File(dir, info.apkName ?: "BeTermux-update.apk")
         _download.value = DownloadState.Downloading(info, 0L, info.apkSize, 0L)
         Thread {
             val error = fetch(info, url, apk)
@@ -309,7 +325,7 @@ object UpdateManager {
             try {
                 c.connectTimeout = 15000
                 c.readTimeout = 30000
-                c.setRequestProperty("User-Agent", "NewTermux/${BuildConfig.VERSION_NAME}")
+                c.setRequestProperty("User-Agent", "BeTermux/${BuildConfig.VERSION_NAME}")
                 if (c.responseCode != 200) return "The server answered HTTP ${c.responseCode}."
                 // getContentLengthLong() is API 24+; minSdk is 21
                 val total = c.getHeaderField("Content-Length")?.toLongOrNull()?.takeIf { it > 0 } ?: info.apkSize
