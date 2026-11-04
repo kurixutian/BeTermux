@@ -7,6 +7,8 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.media.AudioManager;
 import android.os.Environment;
+import android.content.Intent;
+import android.net.Uri;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.InputDevice;
@@ -16,6 +18,10 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.Toast;
+
+import java.io.File;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.termux.R;
 import com.termux.app.TermuxActivity;
@@ -187,20 +193,11 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
     @Override
     public void onSingleTapUp(MotionEvent e) {
-        TerminalEmulator term = mActivity.getCurrentSession().getEmulator();
-
-        if (mActivity.getProperties().shouldOpenTerminalTranscriptURLOnClick()) {
-            int[] columnAndRow = mActivity.getTerminalView().getColumnAndRow(e, true);
-            String wordAtTap = term.getScreen().getWordAtLocation(columnAndRow[0], columnAndRow[1]);
-            LinkedHashSet<CharSequence> urlSet = TermuxUrlUtils.extractUrls(wordAtTap);
-
-            if (!urlSet.isEmpty()) {
-                String url = (String) urlSet.iterator().next();
-                ShareUtils.openUrl(mActivity, url);
-                return;
-            }
+        if (handleTapOnText(e)) {
+            return;
         }
 
+        TerminalEmulator term = mActivity.getCurrentSession().getEmulator();
         if (!term.isMouseTrackingActive() && !e.isFromSource(InputDevice.SOURCE_MOUSE)) {
             if (!KeyboardUtils.areDisableSoftKeyboardFlagsSet(mActivity))
                 KeyboardUtils.showSoftKeyboard(mActivity, mActivity.getTerminalView());
@@ -368,31 +365,348 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
     @Override
     public boolean onLongPress(MotionEvent event) {
-        // Detect URL at the long-pressed position and show Open/Copy dialog
-        if (!com.newtermux.features.NewTermuxSettings.isUrlDetectionEnabled(mActivity)) return false;
-        try {
-            int[] columnAndRow = mActivity.getTerminalView().getColumnAndRow(event, true);
-            String word = mActivity.getCurrentSession().getEmulator().getScreen()
-                .getWordAtLocation(columnAndRow[0], columnAndRow[1]);
-            if (word != null && !word.isEmpty()) {
-                LinkedHashSet<CharSequence> urlSet = TermuxUrlUtils.extractUrls(word);
-                if (!urlSet.isEmpty()) {
-                    String url = (String) urlSet.iterator().next();
-                    com.newtermux.features.NtPopupMenu.showAtLocation(mActivity,
-                        mActivity.getTerminalView(), (int) event.getRawX(), (int) event.getRawY(), url,
-                        new String[]{"Open in browser", "Copy to clipboard"}, idx -> {
-                            if (idx == 0) {
-                                ShareUtils.openUrl(mActivity, url);
-                            } else {
-                                ShareUtils.copyTextToClipboard(mActivity, url,
-                                    mActivity.getString(R.string.msg_select_url_copied_to_clipboard));
-                            }
-                        });
-                    return true;
-                }
-            }
-        } catch (Exception ignored) {}
+        if (handleTapOnText(event)) {
+            return true;
+        }
         return false;
+    }
+
+    private static final Pattern LINE_COL_PATTERN = Pattern.compile("^(.+?):(\\d+)(?::(\\d+))?$");
+
+    private boolean handleTapOnText(MotionEvent e) {
+        if (mActivity == null || mActivity.getCurrentSession() == null) return false;
+        TerminalSession session = mActivity.getCurrentSession();
+        TerminalEmulator term = session.getEmulator();
+        if (term == null || term.getScreen() == null) return false;
+
+        try {
+            int[] columnAndRow = mActivity.getTerminalView().getColumnAndRow(e, true);
+            int col = columnAndRow[0];
+            int row = columnAndRow[1];
+
+            long style = term.getScreen().getStyleAt(row, col);
+            boolean isUnderlined = (com.termux.terminal.TextStyle.decodeEffect(style) & com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0;
+
+            String candidate = null;
+
+            if (isUnderlined) {
+                int maxCols = term.mColumns;
+                int startRow = row;
+                int startCol = col;
+                while (startCol > 0) {
+                    try {
+                        long prevStyle = term.getScreen().getStyleAt(startRow, startCol - 1);
+                        if ((com.termux.terminal.TextStyle.decodeEffect(prevStyle) & com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0) {
+                            startCol--;
+                        } else {
+                            break;
+                        }
+                    } catch (Exception ignored) {
+                        break;
+                    }
+                }
+                if (startCol == 0 && startRow > -term.getScreen().getActiveTranscriptRows()) {
+                    try {
+                        long prevRowEndStyle = term.getScreen().getStyleAt(startRow - 1, maxCols - 1);
+                        if ((com.termux.terminal.TextStyle.decodeEffect(prevRowEndStyle) & com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0) {
+                            startRow--;
+                            startCol = maxCols - 1;
+                            while (startCol > 0) {
+                                long prevStyle = term.getScreen().getStyleAt(startRow, startCol - 1);
+                                if ((com.termux.terminal.TextStyle.decodeEffect(prevStyle) & com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0) {
+                                    startCol--;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+
+                int endRow = row;
+                int endCol = col;
+                while (endCol + 1 < maxCols) {
+                    try {
+                        long nextStyle = term.getScreen().getStyleAt(endRow, endCol + 1);
+                        if ((com.termux.terminal.TextStyle.decodeEffect(nextStyle) & com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0) {
+                            endCol++;
+                        } else {
+                            break;
+                        }
+                    } catch (Exception ignored) {
+                        break;
+                    }
+                }
+                if (endCol + 1 >= maxCols && endRow + 1 < term.mRows) {
+                    try {
+                        long nextRowStartStyle = term.getScreen().getStyleAt(endRow + 1, 0);
+                        if ((com.termux.terminal.TextStyle.decodeEffect(nextRowStartStyle) & com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0) {
+                            endRow++;
+                            endCol = 0;
+                            while (endCol + 1 < maxCols) {
+                                long nextStyle = term.getScreen().getStyleAt(endRow, endCol + 1);
+                                if ((com.termux.terminal.TextStyle.decodeEffect(nextStyle) & com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0) {
+                                    endCol++;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+
+                candidate = term.getScreen().getSelectedText(startCol, startRow, endCol, endRow);
+                if (candidate != null) candidate = candidate.trim();
+            }
+
+            if (candidate == null || candidate.isEmpty()) {
+                candidate = term.getScreen().getWordAtLocation(col, row);
+                if (candidate != null) candidate = candidate.trim();
+            }
+
+            if (candidate == null || candidate.isEmpty()) {
+                return false;
+            }
+
+            String clean = stripEnclosingPunctuation(candidate);
+            if (clean.isEmpty()) return false;
+
+            String matchedUrl = extractUrl(clean);
+            if (matchedUrl != null) {
+                showUrlChooser(matchedUrl, (int) e.getRawX(), (int) e.getRawY());
+                return true;
+            }
+
+            File resolvedFile = resolveFile(clean, session);
+            if (resolvedFile != null) {
+                showFileChooser(resolvedFile, clean, (int) e.getRawX(), (int) e.getRawY());
+                return true;
+            }
+
+            if (isUnderlined) {
+                showUnderlinedTextChooser(clean, session, (int) e.getRawX(), (int) e.getRawY());
+                return true;
+            }
+        } catch (Exception ex) {
+            Logger.logError(LOG_TAG, "Error in handleTapOnText: " + ex.getMessage());
+        }
+
+        return false;
+    }
+
+    private static String stripEnclosingPunctuation(String s) {
+        if (s == null) return "";
+        int start = 0;
+        int end = s.length();
+        while (start < end) {
+            char c = s.charAt(start);
+            if (c == '"' || c == '\'' || c == '`' || c == '(' || c == '[' || c == '{' || c == '<' || Character.isWhitespace(c)) {
+                start++;
+            } else {
+                break;
+            }
+        }
+        while (end > start) {
+            char c = s.charAt(end - 1);
+            if (c == '"' || c == '\'' || c == '`' || c == ')' || c == ']' || c == '}' || c == '>' || c == ',' || c == ';' || Character.isWhitespace(c)) {
+                end--;
+            } else {
+                break;
+            }
+        }
+        return s.substring(start, end).trim();
+    }
+
+    private String extractUrl(String text) {
+        if (text == null || text.isEmpty()) return null;
+        if (text.startsWith("file://")) return null;
+        if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("ftp://")) {
+            return text;
+        }
+        if (text.matches("^(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):\\d+.*")) {
+            return "http://" + text;
+        }
+        LinkedHashSet<CharSequence> urlSet = TermuxUrlUtils.extractUrls(text);
+        if (!urlSet.isEmpty()) {
+            return (String) urlSet.iterator().next();
+        }
+        return null;
+    }
+
+    private File resolveFile(String text, TerminalSession session) {
+        if (text == null || text.isEmpty()) return null;
+        String raw = text;
+        if (raw.startsWith("file://")) {
+            raw = raw.substring(7);
+        }
+
+        Matcher m = LINE_COL_PATTERN.matcher(raw);
+        if (m.matches()) {
+            raw = m.group(1);
+        } else if (raw.contains("#L")) {
+            raw = raw.substring(0, raw.indexOf("#L"));
+        }
+
+        raw = stripEnclosingPunctuation(raw);
+        if (raw.isEmpty()) return null;
+
+        String homePath = TermuxConstants.TERMUX_HOME_DIR_PATH;
+        String cwd = session != null ? session.getCwd() : null;
+
+        if (raw.equals("~")) {
+            return new File(homePath);
+        } else if (raw.startsWith("~/")) {
+            File f = new File(homePath, raw.substring(2));
+            return f;
+        }
+
+        if (raw.startsWith("/")) {
+            File f = new File(raw);
+            if (f.exists()) return f;
+            if (raw.startsWith("/sdcard/") || raw.startsWith("/storage/") || raw.startsWith("/data/data/")) {
+                return f;
+            }
+        }
+
+        if (raw.startsWith("./") || raw.startsWith("../")) {
+            if (cwd != null) {
+                File f = new File(cwd, raw);
+                if (f.exists()) return f;
+            }
+            File fHome = new File(homePath, raw);
+            if (fHome.exists()) return fHome;
+            if (cwd != null) return new File(cwd, raw);
+        }
+
+        if (cwd != null) {
+            File f = new File(cwd, raw);
+            if (f.exists()) return f;
+        }
+
+        File fHome = new File(homePath, raw);
+        if (fHome.exists()) return fHome;
+
+        int dotIdx = raw.lastIndexOf('.');
+        if (dotIdx > 0 && dotIdx < raw.length() - 1 && !raw.contains(" ")) {
+            String ext = raw.substring(dotIdx + 1).toLowerCase();
+            if (isKnownCodeOrDocExtension(ext)) {
+                if (cwd != null) {
+                    return new File(cwd, raw);
+                }
+                return new File(homePath, raw);
+            }
+        }
+
+        return null;
+    }
+
+    private static boolean isKnownCodeOrDocExtension(String ext) {
+        switch (ext) {
+            case "js": case "ts": case "jsx": case "tsx":
+            case "py": case "java": case "kt": case "rs": case "go":
+            case "c": case "cpp": case "h": case "hpp":
+            case "html": case "css": case "json": case "xml": case "yaml": case "yml": case "toml":
+            case "sh": case "bash": case "zsh":
+            case "md": case "txt": case "log": case "sql":
+            case "pdf": case "png": case "jpg": case "jpeg": case "svg":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void showUrlChooser(String url, int x, int y) {
+        String title = url.length() > 38 ? url.substring(0, 35) + "..." : url;
+        String[] options = new String[]{
+            "Open in Dev Browser",
+            "Open in External Browser",
+            "Copy Link"
+        };
+        com.newtermux.features.NtPopupMenu.showAtLocation(mActivity,
+            mActivity.getTerminalView(), x, y, title, options, idx -> {
+                if (idx == 0) {
+                    mActivity.openBrowserTab(url);
+                } else if (idx == 1) {
+                    ShareUtils.openUrl(mActivity, url);
+                } else if (idx == 2) {
+                    ShareUtils.copyTextToClipboard(mActivity, url,
+                        mActivity.getString(R.string.msg_select_url_copied_to_clipboard));
+                }
+            });
+    }
+
+    private void showFileChooser(File file, String originalText, int x, int y) {
+        String title = file.getName();
+        if (title.isEmpty()) title = file.getAbsolutePath();
+        if (title.length() > 38) title = "..." + title.substring(title.length() - 35);
+
+        String[] options = new String[]{
+            "Open in Editor Tab",
+            "Open with External App",
+            "Copy File Path",
+            "Share File"
+        };
+        com.newtermux.features.NtPopupMenu.showAtLocation(mActivity,
+            mActivity.getTerminalView(), x, y, title, options, idx -> {
+                if (idx == 0) {
+                    mActivity.openFileTab(file);
+                } else if (idx == 1) {
+                    openFileWithSystem(mActivity, file);
+                } else if (idx == 2) {
+                    ShareUtils.copyTextToClipboard(mActivity, file.getAbsolutePath(), "Path copied to clipboard");
+                } else if (idx == 3) {
+                    shareFileWithSystem(mActivity, file);
+                }
+            });
+    }
+
+    private void showUnderlinedTextChooser(String text, TerminalSession session, int x, int y) {
+        String title = text.length() > 38 ? text.substring(0, 35) + "..." : text;
+        String[] options = new String[]{
+            "Open in Editor Tab",
+            "Search Web",
+            "Copy Text"
+        };
+        com.newtermux.features.NtPopupMenu.showAtLocation(mActivity,
+            mActivity.getTerminalView(), x, y, title, options, idx -> {
+                if (idx == 0) {
+                    String cwd = session != null ? session.getCwd() : TermuxConstants.TERMUX_HOME_DIR_PATH;
+                    File f = new File(cwd != null ? cwd : TermuxConstants.TERMUX_HOME_DIR_PATH, text);
+                    mActivity.openFileTab(f);
+                } else if (idx == 1) {
+                    String searchUrl = "https://www.google.com/search?q=" + Uri.encode(text);
+                    mActivity.openBrowserTab(searchUrl);
+                } else if (idx == 2) {
+                    ShareUtils.copyTextToClipboard(mActivity, text, "Copied to clipboard");
+                }
+            });
+    }
+
+    private static void openFileWithSystem(Context context, File file) {
+        try {
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                context, context.getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "*/*");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            context.startActivity(Intent.createChooser(intent, "Open " + file.getName()));
+        } catch (Exception e) {
+            Toast.makeText(context, "Cannot open: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private static void shareFileWithSystem(Context context, File file) {
+        try {
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                context, context.getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            context.startActivity(Intent.createChooser(intent, "Share " + file.getName()));
+        } catch (Exception e) {
+            Toast.makeText(context, "Cannot share: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
 

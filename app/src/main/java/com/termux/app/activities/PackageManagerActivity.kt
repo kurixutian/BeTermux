@@ -7,9 +7,12 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -34,8 +37,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.newtermux.compose.NewTermuxComposeTheme
@@ -155,18 +160,48 @@ private fun PackageManagerScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(filtered, key = { it.name }) { entry ->
-                    PackageRow(
-                        entry = entry,
-                        subtitle = if (tab == TAB_INSTALLED) {
-                            if (entry.version != null) "v${entry.version}" else "installed"
-                        } else {
-                            if (entry.name in installedNames) "Installed · Termux repo" else "Termux repo"
-                        },
-                        onClick = { detail = entry },
+            if (filtered.isEmpty() && loaded) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(56.dp),
                     )
-                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        if (q.isEmpty()) "No packages found" else "No results for \"$q\"",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (q.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Check spelling or try searching for another package name",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(filtered, key = { it.name }) { entry ->
+                        PackageRow(
+                            entry = entry,
+                            subtitle = if (tab == TAB_INSTALLED) {
+                                if (entry.version != null) "v${entry.version}" else "installed"
+                            } else {
+                                if (entry.name in installedNames) "Installed · Termux repo" else "Termux repo"
+                            },
+                            onClick = { detail = entry },
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
                 }
             }
         }

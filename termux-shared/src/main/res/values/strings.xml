@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!DOCTYPE resources [
-    <!ENTITY TERMUX_PACKAGE_NAME "com.newtermux.app">
-    <!ENTITY TERMUX_APP_NAME "NewTermux">
-    <!ENTITY TERMUX_API_APP_NAME "NewTermux:API">
-    <!ENTITY TERMUX_BOOT_APP_NAME "NewTermux:Boot">
-    <!ENTITY TERMUX_FLOAT_APP_NAME "NewTermux:Float">
-    <!ENTITY TERMUX_STYLING_APP_NAME "NewTermux:Styling">
-    <!ENTITY TERMUX_TASKER_APP_NAME "NewTermux:Tasker">
-    <!ENTITY TERMUX_WIDGET_APP_NAME "NewTermux:Widget">
-    <!ENTITY TERMUX_PREFIX_DIR_PATH "/data/data/com.newtermux.app/files/usr">
+    <!ENTITY TERMUX_PACKAGE_NAME "com.kurixutian.betermux">
+    <!ENTITY TERMUX_APP_NAME "BeTermux">
+    <!ENTITY TERMUX_API_APP_NAME "BeTermux:API">
+    <!ENTITY TERMUX_BOOT_APP_NAME "BeTermux:Boot">
+    <!ENTITY TERMUX_FLOAT_APP_NAME "BeTermux:Float">
+    <!ENTITY TERMUX_STYLING_APP_NAME "BeTermux:Styling">
+    <!ENTITY TERMUX_TASKER_APP_NAME "BeTermux:Tasker">
+    <!ENTITY TERMUX_WIDGET_APP_NAME "BeTermux:Widget">
+    <!ENTITY TERMUX_PREFIX_DIR_PATH "/data/data/com.kurixutian.betermux/files/usr">
     ]>
 
 <resources>

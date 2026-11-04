@@ -660,6 +660,7 @@ public final class ExtraKeysView extends GridLayout {
         state.setIsCreated(true);
         MaterialButton button = new MaterialButton(getContext(), null, android.R.attr.buttonBarButtonStyle);
         button.setTextColor(state.isActive ? mButtonActiveTextColor : mButtonTextColor);
+        button.setBackgroundColor(state.isActive ? mButtonActiveBackgroundColor : mButtonBackgroundColor);
         if (needUpdate) {
             state.buttons.add(button);
         }

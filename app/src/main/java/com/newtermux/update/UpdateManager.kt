@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object UpdateManager {
     private const val TAG = "NT_UPDATE"
-    private const val REPO = "The412Banner/NewTermux"
+    private const val REPO = "kurixutian/BeTermux"
     const val RELEASES_PAGE = "https://github.com/$REPO/releases"
     private const val API_LATEST = "https://api.github.com/repos/$REPO/releases/latest"
     private const val API_LIST = "https://api.github.com/repos/$REPO/releases?per_page=20"

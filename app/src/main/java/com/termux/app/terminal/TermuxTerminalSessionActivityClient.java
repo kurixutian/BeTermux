@@ -387,7 +387,9 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
             String executablePath = null;
             if (BuildConfig.IS_DEMO) {
                 executablePath = new java.io.File(mActivity.getFilesDir(), "bin/bash").getAbsolutePath();
-                workingDirectory = mActivity.getFilesDir().getAbsolutePath();
+                java.io.File homeDir = new java.io.File(mActivity.getFilesDir(), "home");
+                homeDir.mkdirs();
+                workingDirectory = homeDir.getAbsolutePath();
             }
             TermuxSession newTermuxSession = service.createTermuxSession(executablePath, null, null, workingDirectory, isFailSafe, sessionName);
             if (newTermuxSession == null) return;
@@ -502,13 +504,27 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
     public void checkForFontAndColors() {
         try {
-            File colorsFile = TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE;
-            File fontFile = TermuxConstants.TERMUX_FONT_FILE;
+            File colorsFile = new File(mActivity.getFilesDir(), "home/.termux/colors.properties");
+            if (!colorsFile.isFile()) {
+                colorsFile = TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE;
+            }
+            File fontFile = new File(mActivity.getFilesDir(), "home/.termux/font.ttf");
+            if (!fontFile.exists() || fontFile.length() <= 0) {
+                fontFile = TermuxConstants.TERMUX_FONT_FILE;
+            }
 
             final Properties props = new Properties();
             if (colorsFile.isFile()) {
                 try (InputStream in = new FileInputStream(colorsFile)) {
                     props.load(in);
+                }
+            } else {
+                String savedTheme = com.newtermux.features.NewTermuxColorTheme.getCurrentTheme(mActivity);
+                String themeContent = com.newtermux.features.NewTermuxColorTheme.getThemeContent(savedTheme);
+                if (themeContent != null) {
+                    try (InputStream in = new java.io.ByteArrayInputStream(themeContent.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                        props.load(in);
+                    }
                 }
             }
 

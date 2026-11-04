@@ -327,7 +327,19 @@ public class NewTermuxColorTheme {
     public static void applyTheme(Context context, String themeKey) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_THEME, themeKey).apply();
-        writeColorsFile(themeKey);
+        writeColorsFile(context, themeKey);
+    }
+
+    public static File getColorsFile(Context context) {
+        if (context != null) {
+            return new File(context.getFilesDir(), "home/.termux/colors.properties");
+        }
+        return TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE;
+    }
+
+    private static void writeColorsFile(Context context, String themeKey) {
+        String content = getThemeContent(themeKey);
+        writeColorsFileRaw(context, content);
     }
 
     public static String getThemeName(String key) {
@@ -365,7 +377,7 @@ public class NewTermuxColorTheme {
         } catch (IOException ignored) {}
     }
 
-    private static String getThemeContent(String key) {
+    public static String getThemeContent(String key) {
         switch (key) {
             case "oled_black":       return THEME_OLED_BLACK;
             case "dracula":          return THEME_DRACULA;
@@ -389,7 +401,7 @@ public class NewTermuxColorTheme {
             .putString("custom_theme_content", content)
             .putString(KEY_THEME, THEME_KEY_CUSTOM)
             .apply();
-        writeColorsFileRaw(content);
+        writeColorsFileRaw(ctx, content);
     }
 
     public static String getCustomThemeContent(Context ctx) {
@@ -397,11 +409,23 @@ public class NewTermuxColorTheme {
             .getString("custom_theme_content", THEME_DEFAULT_DARK);
     }
 
-    static void writeColorsFileRaw(String content) {
-        File dir = TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE.getParentFile();
-        if (dir != null && !dir.exists()) dir.mkdirs();
-        try (FileWriter fw = new FileWriter(TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE)) {
-            fw.write(content);
-        } catch (IOException ignored) {}
+    static void writeColorsFileRaw(Context context, String content) {
+        if (context != null) {
+            try {
+                File appColors = new File(context.getFilesDir(), "home/.termux/colors.properties");
+                File parent = appColors.getParentFile();
+                if (parent != null && !parent.exists()) parent.mkdirs();
+                try (FileWriter fw = new FileWriter(appColors)) {
+                    fw.write(content);
+                }
+            } catch (Exception ignored) {}
+        }
+        try {
+            File dir = TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE.getParentFile();
+            if (dir != null && !dir.exists()) dir.mkdirs();
+            try (FileWriter fw = new FileWriter(TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE)) {
+                fw.write(content);
+            }
+        } catch (Exception ignored) {}
     }
 }

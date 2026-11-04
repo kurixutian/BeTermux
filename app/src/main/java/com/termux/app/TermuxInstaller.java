@@ -72,16 +72,14 @@ public final class TermuxInstaller {
         "clear\n" +
         "echo ''\n" +
         "echo '  ╔══════════════════════════════════════════╗'\n" +
-        "echo '  ║      NewTermux — Test / Coexist Mode     ║'\n" +
-        "echo '  ║  Settings, toolbar & UI are fully live.  ║'\n" +
-        "echo '  ║  Shell commands are disabled here.       ║'\n" +
+        "echo '  ║            BeTermux v1.0.0               ║'\n" +
+        "echo '  ║         Forked by Kurixutian             ║'\n" +
+        "echo '  ║  Home (~) is in private app storage.     ║'\n" +
+        "echo '  ║  Shared storage is at /sdcard            ║'\n" +
         "echo '  ╚══════════════════════════════════════════╝'\n" +
         "echo ''\n" +
-        "while true; do\n" +
-        "  printf '$ '\n" +
-        "  read line\n" +
-        "  [ -n \"$line\" ] && echo \"[test-mode] $line\"\n" +
-        "done\n";
+        "export PS1='$ '\n" +
+        "exec /system/bin/sh -i\n";
 
     /** Performs bootstrap setup if necessary. */
     static void setupBootstrapIfNeeded(final Activity activity, final Runnable whenDone) {
@@ -92,6 +90,18 @@ public final class TermuxInstaller {
                 @Override
                 public void run() {
                     try {
+                        File homeDir = new File(activity.getFilesDir(), "home");
+                        homeDir.mkdirs();
+                        File welcomeFile = new File(homeDir, "welcome.txt");
+                        if (!welcomeFile.exists()) {
+                            try (FileOutputStream fos = new FileOutputStream(welcomeFile)) {
+                                fos.write(("Welcome to BeTermux v1.0.0 by Kurixutian!\n\n" +
+                                    "Based on the Termux Open Source Project.\n" +
+                                    "This is your private home directory (~).\n" +
+                                    "To access files across your device, switch to Shared Storage (/sdcard) in the File Manager.\n").getBytes(StandardCharsets.UTF_8));
+                            }
+                        }
+
                         File binDir = new File(activity.getFilesDir(), "bin");
                         binDir.mkdirs();
                         File fakeShell = new File(binDir, "bash");

@@ -11,6 +11,7 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -37,6 +38,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -55,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -100,9 +104,9 @@ class ControlDeckPresentation(private val owner: TermuxActivity, display: Displa
     }
 }
 
-private val DeckBg = Color(0xFF121016)
-private val TileBg = Color(0xFF1E1A26)
-private val TileBorder = Color(0xFF444444)
+private val DeckBg = Color(0xFF101214)
+private val TileBg = Color(0xFF181B1F)
+private val TileBorder = Color(0xFF383E48)
 
 // One grid for the whole deck: session tiles, the new-session tile and command buttons all take
 // one column, with the same gap everywhere, so they line up with each other.
@@ -203,7 +207,11 @@ private fun Header(act: TermuxActivity?) {
         horizontalArrangement = Arrangement.spacedBy(Gap),
         modifier = Modifier.fillMaxWidth().height(40.dp),
     ) {
-        Text("NewTermux", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color.White)
+        Image(
+            painter = painterResource(id = R.mipmap.ic_launcher),
+            contentDescription = null,
+            modifier = Modifier.size(24.dp).clip(RoundedCornerShape(4.dp))
+        )
         Spacer(Modifier.weight(1f))
         if (act != null) {
             if (act.isToolbarButtonShown(R.id.btn_autocorrect_toggle)) {
@@ -211,26 +219,43 @@ private fun Header(act: TermuxActivity?) {
                     Text("AC", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
-            if (act.isToolbarButtonShown(R.id.btn_stt)) HeaderIcon(Icons.Filled.Mic) { act.performToolbarAction(R.id.btn_stt) }
-            if (act.isToolbarButtonShown(R.id.btn_root_toggle)) HeaderIcon(Icons.Filled.Shield) { act.performToolbarAction(R.id.btn_root_toggle) }
-            HeaderIcon(Icons.Filled.Settings) { act.performToolbarAction(R.id.btn_settings) }
-            HeaderIcon(Icons.Filled.Add) { act.performToolbarAction(R.id.btn_new_session) }
+            if (act.isToolbarButtonShown(R.id.btn_stt)) HeaderIcon(Icons.Filled.Mic, "Speech to text") { act.performToolbarAction(R.id.btn_stt) }
+            HeaderIcon(Icons.Filled.Folder, "File manager") {
+                act.startActivity(android.content.Intent(act, com.termux.app.activities.FileManagerActivity::class.java))
+            }
+            HeaderIcon(Icons.Filled.Language, "Dev browser") {
+                act.startActivity(android.content.Intent(act, com.termux.app.activities.DevBrowserActivity::class.java))
+            }
+            HeaderIcon(Icons.Filled.Settings, "Settings") { act.performToolbarAction(R.id.btn_settings) }
+            HeaderIcon(Icons.Filled.Add, "New session") { act.performToolbarAction(R.id.btn_new_session) }
         }
-        HeaderIcon(Icons.Filled.Close) { DeckBridge.hideByUser() }
+        HeaderIcon(Icons.Filled.Close, "Close control deck") { DeckBridge.hideByUser() }
     }
 }
 
 @Composable
 private fun HeaderAction(onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
-        modifier = Modifier.size(HeaderButton).clip(CircleShape).background(TileBg).combinedClickable(onClick = onClick),
+        modifier = Modifier
+            .size(HeaderButton)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+            .combinedClickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { content() }
 }
 
 @Composable
-private fun HeaderIcon(icon: ImageVector, onClick: () -> Unit) {
-    HeaderAction(onClick) { Icon(icon, null, tint = Color(0xFFDDDDDD), modifier = Modifier.size(20.dp)) }
+private fun HeaderIcon(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
+    HeaderAction(onClick) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 @Composable

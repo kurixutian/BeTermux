@@ -45,17 +45,17 @@ android {
     defaultConfig {
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 30
-        versionName "2.0.1"
+        versionCode 1
+        versionName "1.0.0"
 
         if (appVersionName) versionName = appVersionName
         validateVersionName(versionName)
 
         buildConfigField "String", "TERMUX_PACKAGE_VARIANT", "\"" + project.ext.packageVariant + "\"" // Used by TermuxApplication class
 
-        applicationId "com.termux"
-        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.termux"
-        manifestPlaceholders.TERMUX_APP_NAME = "NewTermux"
+        applicationId "com.kurixutian.betermux"
+        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.kurixutian.betermux"
+        manifestPlaceholders.TERMUX_APP_NAME = "BeTermux"
         manifestPlaceholders.TERMUX_API_APP_NAME = "Termux:API"
         manifestPlaceholders.TERMUX_BOOT_APP_NAME = "Termux:Boot"
         manifestPlaceholders.TERMUX_FLOAT_APP_NAME = "Termux:Float"
@@ -63,9 +63,11 @@ android {
         manifestPlaceholders.TERMUX_TASKER_APP_NAME = "Termux:Tasker"
         manifestPlaceholders.TERMUX_WIDGET_APP_NAME = "Termux:Widget"
 
-        externalNativeBuild {
-            ndkBuild {
-                cFlags "-std=c11", "-Wall", "-Wextra", "-Werror", "-Os", "-fno-stack-protector", "-Wl,--gc-sections"
+        if (!file("src/main/jniLibs").exists()) {
+            externalNativeBuild {
+                ndkBuild {
+                    cFlags "-std=c11", "-Wall", "-Wextra", "-Werror", "-Os", "-fno-stack-protector", "-Wl,--gc-sections"
+                }
             }
         }
 
@@ -102,17 +104,14 @@ android {
             buildConfigField "boolean", "IS_DEMO", "false"
         }
 
-        // Test/coexist build: installs as com.termux.demo alongside real Termux and NewTermux.
-        // Fake shell — all Settings/toolbar/drawer/Text Expansion UI works; no real commands run.
+        // BeTermux fork build: installs as com.kurixutian.betermux alongside original Termux.
+        // Interactive shell, settings/toolbar/drawer/theming fully live without conflicting with com.termux.
         demo {
             initWith debug
-            applicationIdSuffix ".demo"
             buildConfigField "boolean", "IS_DEMO", "true"
             matchingFallbacks = ['debug']  // library submodules don't have 'demo', fall back to debug
-            // Override package name so sharedUserId and content provider authorities
-            // (com.termux.demo.documents, com.termux.demo.files) are unique and don't
-            // conflict with NewTermux (com.termux) or original Termux already installed.
-            manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.termux.demo"
+            manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.kurixutian.betermux"
+            manifestPlaceholders.TERMUX_APP_NAME = "BeTermux"
         }
     }
 
@@ -128,9 +127,11 @@ android {
         jvmTarget = "11"
     }
 
-    externalNativeBuild {
-        ndkBuild {
-            path "src/main/cpp/Android.mk"
+    if (!file("src/main/jniLibs").exists()) {
+        externalNativeBuild {
+            ndkBuild {
+                path "src/main/cpp/Android.mk"
+            }
         }
     }
 
@@ -160,7 +161,7 @@ android {
                 outputFileName = new File("termux-app_" + (apkVersionTag ? apkVersionTag : project.ext.packageVariant + "-" + "release") + "_" + (abi ? abi : "universal") + ".apk")
             } else if (variant.buildType.name == "demo") {
                 def abi = output.getFilter(com.android.build.OutputFile.ABI)
-                outputFileName = new File("newtermux-test-coexist_" + (apkVersionTag ? apkVersionTag : "demo") + "_" + (abi ? abi : "universal") + ".apk")
+                outputFileName = new File("betermux-v1.0.0_" + (abi ? abi : "universal") + ".apk")
             }
         }
     }

@@ -272,6 +272,7 @@ private fun RootScreen(activity: Activity, onBack: () -> Unit, onNav: (Route) ->
             NavRow("Package Manager", "Browse, search and install packages") { launch(PackageManagerActivity::class.java) }
             NavRow("SSH Manager", "Save and connect to multiple SSH servers") { launch(SshManagerActivity::class.java) }
             NavRow("File Manager", "Browse, edit, and manage files in your Termux home") { launch(FileManagerActivity::class.java) }
+            NavRow("Dev Browser", "Built-in web preview with element inspector & DevTools") { launch(DevBrowserActivity::class.java) }
             HorizontalDivider()
             NavRow("Backup & Restore", "Back up or restore your Termux environment") { onNav(Route.BACKUP) }
             NavRow("Features", "Toggle NewTermux features on or off") { onNav(Route.FEATURES) }
@@ -347,7 +348,7 @@ private fun UpdatesScreen(activity: Activity, onBack: () -> Unit) {
                     skipped = ""
                 }
             }
-            NavRow("Release page", "Open the NewTermux releases on GitHub") { UpdateManager.openReleasePage(activity) }
+            NavRow("Release page", "Open BeTermux releases on GitHub") { UpdateManager.openReleasePage(activity) }
             if (UpdateManager.isTestBuild()) {
                 HorizontalDivider()
                 CategoryHeader("Test build")
@@ -791,6 +792,21 @@ private fun isDonateVisible(context: Context): Boolean {
 
 private fun openAbout(context: Context) {
     val about = StringBuilder()
+    val credits = """
+        # BeTermux v1.0.0
+        **Author & Maintainer**: Kurixutian
+        **Repository**: https://github.com/kurixutian/BeTermux
+        
+        ### Project Lineage & Credits
+        BeTermux is a customized modern Android terminal:
+        - **Forked From**: NewTermux (https://github.com/The412Banner/NewTermux) by The412Banner
+        - **Base Project**: Termux Open Source Project (https://github.com/termux/termux-app)
+        - **Original Authors**: Fredrik Fornwall, Henrik Grimler & the Termux team
+        - **License**: GNU General Public License v3.0 (GPL-3.0)
+        
+        ---
+    """.trimIndent()
+    about.append(credits).append("\n\n")
     about.append(TermuxUtils.getAppInfoMarkdownString(context, TermuxUtils.AppInfoMode.TERMUX_AND_PLUGIN_PACKAGES))
     about.append("\n\n").append(AndroidUtils.getDeviceInfoMarkdownString(context, true))
     about.append("\n\n").append(TermuxUtils.getImportantLinksMarkdownString(context))

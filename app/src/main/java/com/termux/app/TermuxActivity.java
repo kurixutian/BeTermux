@@ -24,6 +24,7 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
@@ -232,6 +233,67 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private final java.util.Map<Integer, ViewGroup.LayoutParams> mToolbarButtonParams = new java.util.HashMap<>();
     private static final int REQUEST_RECORD_AUDIO = 201;
 
+    // Tab status constants
+    public static final int TAB_STATUS_STANDBY = 0;    // White
+    public static final int TAB_STATUS_PROCESSING = 1; // Yellow
+    public static final int TAB_STATUS_FINISHED = 2;   // Green
+
+    // Tab type constants
+    public static final int TAB_TYPE_TERMINAL = 0;
+    public static final int TAB_TYPE_BROWSER = 1;
+    public static final int TAB_TYPE_FILE = 2;
+
+    // File Tab model
+    public static class FileTab {
+        public final File file;
+        public final String path;
+        public final String name;
+        public int status;
+
+        public FileTab(File file) {
+            this.file = file;
+            this.path = file.getAbsolutePath();
+            this.name = file.getName();
+            this.status = TAB_STATUS_STANDBY;
+        }
+    }
+
+    // In-tab Browser fields
+    private androidx.compose.ui.platform.ComposeView mBrowserContainer;
+    private boolean mHasBrowserTab = false;
+    private boolean mIsBrowserTabActive = false;
+    private String mBrowserTabTitle = "Dev Browser";
+    private int mBrowserTabStatus = TAB_STATUS_STANDBY;
+    private Runnable mBrowserGoBack = null;
+    private boolean mBrowserCanGoBack = false;
+    private Runnable mBrowserReload = null;
+
+    // In-tab File fields
+    private androidx.compose.ui.platform.ComposeView mFileTabContainer;
+    private final java.util.List<FileTab> mOpenFileTabs = new java.util.ArrayList<>();
+    private int mActiveFileTabIndex = -1;
+
+    private final android.os.Handler mTabStatusHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable mTabStatusCheckRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!mIsInvalidState && isVisible()) {
+                refreshTabStatusDots();
+                mTabStatusHandler.postDelayed(this, 1500);
+            }
+        }
+    };
+
+    private static class TabViewHolder {
+        int type;
+        TerminalSession session;
+        FileTab fileTab;
+        View dotView;
+        TextView titleView;
+        ImageView iconView;
+        int currentStatus = -1;
+    }
+
     // SAF launchers for Export Screen and Make Script
     private ActivityResultLauncher<String> mScreenExportSaver;
     private ActivityResultLauncher<String> mScriptSaver;
@@ -376,6 +438,38 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         // Update notice overlay (pill, highlights dialog, download card)
         UpdateUi.attach(this);
+
+        mFileTabContainer = findViewById(R.id.file_tab_container);
+        handleFileIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleFileIntent(intent);
+    }
+
+    private void handleFileIntent(Intent intent) {
+        if (intent == null) return;
+        String filePath = intent.getStringExtra("OPEN_FILE_PATH");
+        if (filePath != null && !filePath.isEmpty()) {
+            File file = new File(filePath);
+            if (file.exists()) {
+                openFileTab(file);
+                return;
+            }
+        }
+        android.net.Uri uri = intent.getData();
+        if (uri != null && "file".equalsIgnoreCase(uri.getScheme())) {
+            String path = uri.getPath();
+            if (path != null) {
+                File file = new File(path);
+                if (file.exists()) {
+                    openFileTab(file);
+                }
+            }
+        }
     }
 
     @Override
@@ -446,6 +540,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         DeckBridge.setActivity(this);
         applyLayoutMode(getResources().getConfiguration().orientation);
         UpdateUi.onResume(this);
+        mTabStatusHandler.removeCallbacks(mTabStatusCheckRunnable);
+        mTabStatusHandler.postDelayed(mTabStatusCheckRunnable, 1500);
         if (mTermuxTerminalSessionActivityClient != null)
             mTermuxTerminalSessionActivityClient.checkForFontAndColors();
 
@@ -497,6 +593,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private void applyAccentColor() {
         int color = NewTermuxTheme.getAccentColor(this);
 
+        // App title
+        android.widget.TextView tvTitle = findViewById(R.id.tv_app_title);
+        if (tvTitle != null) tvTitle.setTextColor(color);
+
         // AC toggle button
         android.widget.TextView btnAC = findViewById(R.id.btn_autocorrect_toggle);
         if (btnAC != null) {
@@ -511,6 +611,13 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         ImageButton btnSettings = findViewById(R.id.btn_settings);
         if (btnSettings != null) btnSettings.setColorFilter(color);
 
+        // Extra keys active styling
+        if (mExtraKeysView != null && mTermuxTerminalExtraKeys != null) {
+            int activeBg = androidx.core.graphics.ColorUtils.setAlphaComponent(color, 0x44);
+            mExtraKeysView.setButtonColors(0xFFE6EDF3, color, 0xFF1C2128, activeBg);
+            mExtraKeysView.reload(mTermuxTerminalExtraKeys.getExtraKeysInfo(), mTerminalToolbarDefaultHeight);
+        }
+
         // Session chips
         updateSessionTabs();
 
@@ -519,11 +626,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void applyFeatureSettings() {
-        setVisible(R.id.btn_autocorrect_toggle, NewTermuxSettings.isShowAcButton(this));
-        setVisible(R.id.btn_root_toggle, NewTermuxSettings.isShowRootButton(this));
-        setVisible(R.id.btn_stt, NewTermuxSettings.isShowSttButton(this));
-        setVisible(R.id.btn_packages_menu, NewTermuxSettings.isShowPackagesButton(this));
-        setVisible(R.id.btn_clear_terminal, NewTermuxSettings.isShowClearButton(this));
+        // Toolbar secondary actions are cleanly housed in the More (⋮) menu
+        setVisible(R.id.btn_autocorrect_toggle, false);
+        setVisible(R.id.btn_root_toggle, false);
+        setVisible(R.id.btn_stt, false);
+        setVisible(R.id.btn_packages_menu, false);
+        setVisible(R.id.btn_clear_terminal, false);
         // Hide/show the whole scroll container (chip group lives inside it)
         setVisible(R.id.session_tabs_scroll, NewTermuxSettings.isSessionTabsEnabled(this));
         // Autocorrect initial enabled state
@@ -543,6 +651,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         Logger.logDebug(LOG_TAG, "onStop");
 
         if (mIsInvalidState) return;
+
+        mTabStatusHandler.removeCallbacks(mTabStatusCheckRunnable);
 
         mIsVisible = false;
 
@@ -581,6 +691,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         if (mSpeechInputManager != null) { mSpeechInputManager.destroy(); mSpeechInputManager = null; }
         if (mAutoCorrectHandler != null) { mAutoCorrectHandler.destroy(); mAutoCorrectHandler = null; }
+        mTabStatusHandler.removeCallbacksAndMessages(null);
+
+        if (mBrowserContainer != null) {
+            mBrowserContainer.disposeComposition();
+            mBrowserContainer = null;
+        }
+        if (mFileTabContainer != null) {
+            mFileTabContainer.disposeComposition();
+            mFileTabContainer = null;
+        }
 
         if (mTermuxService != null) {
             // Do not leave service and session clients with references to activity.
@@ -863,6 +983,25 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             }
         }
 
+        View btnFiles = findViewById(R.id.btn_files);
+        if (btnFiles != null) {
+            btnFiles.setOnClickListener(v -> startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class)));
+        }
+
+        mBrowserContainer = findViewById(R.id.browser_container);
+
+        ImageButton btnExtraKeys = findViewById(R.id.btn_extra_keys);
+        if (btnExtraKeys != null) {
+            btnExtraKeys.setOnClickListener(v -> {
+                ViewPager vp = getTerminalToolbarViewPager();
+                if (vp != null) {
+                    boolean show = (vp.getVisibility() != View.VISIBLE);
+                    vp.setVisibility(show ? View.VISIBLE : View.GONE);
+                    NewTermuxSettings.set(this, NewTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, show);
+                }
+            });
+        }
+
         View btnPackages = findViewById(R.id.btn_packages_menu);
         if (btnPackages != null) {
             btnPackages.setOnClickListener(v -> mPackageManagerMenu.show(v));
@@ -908,10 +1047,24 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         ImageButton btnNewSession = findViewById(R.id.btn_new_session);
         if (btnNewSession != null) {
             btnNewSession.setOnClickListener(v -> {
-                if (mTermuxTerminalSessionActivityClient != null) {
-                    mTermuxTerminalSessionActivityClient.addNewSession(false, null);
-                }
+                com.newtermux.features.NtPopupMenu.showAsDropDown(this, v, null,
+                    new String[]{"New Terminal Tab", "New Dev Browser Tab", "Files"}, optIdx -> {
+                        if (optIdx == 0) {
+                            if (mTermuxTerminalSessionActivityClient != null) {
+                                mTermuxTerminalSessionActivityClient.addNewSession(false, null);
+                            }
+                        } else if (optIdx == 1) {
+                            openBrowserTab("http://127.0.0.1:3000");
+                        } else if (optIdx == 2) {
+                            startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class));
+                        }
+                    });
             });
+        }
+
+        ImageButton btnMoreMenu = findViewById(R.id.btn_more_menu);
+        if (btnMoreMenu != null) {
+            btnMoreMenu.setOnClickListener(v -> showToolbarMoreMenu(v));
         }
 
         // Session pip row
@@ -968,7 +1121,341 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         });
     }
 
-    /** Update the horizontal session pip row with live mini terminal previews. */
+    private static android.graphics.drawable.GradientDrawable createDotDrawable(int status) {
+        android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+        dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        int color;
+        switch (status) {
+            case TAB_STATUS_PROCESSING:
+                color = 0xFFE3B341; // Yellow (processing)
+                break;
+            case TAB_STATUS_FINISHED:
+                color = 0xFF3FB950; // Green (finished)
+                break;
+            case TAB_STATUS_STANDBY:
+            default:
+                color = 0xFFE6EDF3; // White (standby)
+                break;
+        }
+        dot.setColor(color);
+        return dot;
+    }
+
+    private static void applyStatusDotColor(View dotView, int status) {
+        if (dotView != null) {
+            dotView.setBackground(createDotDrawable(status));
+        }
+    }
+
+    public static int getTerminalSessionStatus(TerminalSession session) {
+        if (session == null) return TAB_STATUS_STANDBY;
+        if (!session.isRunning() || session.getPid() <= 0) {
+            return TAB_STATUS_FINISHED;
+        }
+        int pid = session.getPid();
+        java.io.BufferedReader reader = null;
+        try {
+            reader = new java.io.BufferedReader(new java.io.FileReader("/proc/" + pid + "/stat"), 256);
+            String line = reader.readLine();
+            if (line != null) {
+                int closeParen = line.lastIndexOf(')');
+                if (closeParen != -1 && closeParen + 2 < line.length()) {
+                    String rest = line.substring(closeParen + 2).trim();
+                    String[] tokens = rest.split("\\s+");
+                    if (tokens.length > 5) {
+                        int pgrp = Integer.parseInt(tokens[2]);
+                        int tpgid = Integer.parseInt(tokens[5]);
+                        if (tpgid > 0 && tpgid != pgrp) {
+                            return TAB_STATUS_PROCESSING;
+                        } else {
+                            return TAB_STATUS_STANDBY;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (reader != null) {
+                try { reader.close(); } catch (Exception ignored) {}
+            }
+        }
+        return TAB_STATUS_STANDBY;
+    }
+
+    public void refreshTabStatusDots() {
+        if (mSessionPipContainer == null) return;
+        for (int i = 0; i < mSessionPipContainer.getChildCount(); i++) {
+            View child = mSessionPipContainer.getChildAt(i);
+            Object tag = child.getTag();
+            if (tag instanceof TabViewHolder) {
+                TabViewHolder holder = (TabViewHolder) tag;
+                if (holder.type == TAB_TYPE_TERMINAL && holder.session != null && holder.dotView != null) {
+                    int status = getTerminalSessionStatus(holder.session);
+                    if (holder.currentStatus != status) {
+                        holder.currentStatus = status;
+                        applyStatusDotColor(holder.dotView, status);
+                    }
+                } else if (holder.type == TAB_TYPE_BROWSER && holder.dotView != null) {
+                    if (holder.currentStatus != mBrowserTabStatus) {
+                        holder.currentStatus = mBrowserTabStatus;
+                        applyStatusDotColor(holder.dotView, mBrowserTabStatus);
+                    }
+                } else if (holder.type == TAB_TYPE_FILE && holder.fileTab != null && holder.dotView != null) {
+                    if (holder.currentStatus != holder.fileTab.status) {
+                        holder.currentStatus = holder.fileTab.status;
+                        applyStatusDotColor(holder.dotView, holder.fileTab.status);
+                    }
+                }
+            }
+        }
+    }
+
+    public void openBrowserTab(String initialUrl) {
+        if (mBrowserContainer == null) {
+            mBrowserContainer = findViewById(R.id.browser_container);
+        }
+        if (mBrowserContainer == null) return;
+
+        mHasBrowserTab = true;
+        mIsBrowserTabActive = true;
+        mActiveFileTabIndex = -1;
+        mBrowserTabStatus = TAB_STATUS_PROCESSING;
+
+        com.termux.app.activities.DevBrowserBridge.attachTo(
+            mBrowserContainer,
+            this,
+            title -> runOnUiThread(() -> {
+                mBrowserTabTitle = (title != null && !title.isEmpty()) ? title : "Dev Browser";
+                updateSessionTabs();
+            }),
+            loading -> runOnUiThread(() -> {
+                mBrowserTabStatus = loading ? TAB_STATUS_PROCESSING : TAB_STATUS_FINISHED;
+                updateSessionTabs();
+            }),
+            () -> runOnUiThread(this::closeBrowserTab),
+            (canBack, goBackRunnable) -> runOnUiThread(() -> {
+                mBrowserCanGoBack = canBack;
+                mBrowserGoBack = goBackRunnable;
+            }),
+            reloadRunnable -> runOnUiThread(() -> {
+                mBrowserReload = reloadRunnable;
+            })
+        );
+
+        DrawerLayout drawer = getDrawer();
+        if (drawer != null) {
+            drawer.setVisibility(View.GONE);
+        }
+        if (mFileTabContainer != null) {
+            mFileTabContainer.setVisibility(View.GONE);
+        }
+        if (mBrowserContainer != null) {
+            mBrowserContainer.setVisibility(View.VISIBLE);
+        }
+        updateSessionTabs();
+    }
+
+    public void closeBrowserTab() {
+        mHasBrowserTab = false;
+        mIsBrowserTabActive = false;
+        mBrowserTabTitle = "Dev Browser";
+        mBrowserTabStatus = TAB_STATUS_STANDBY;
+        mBrowserGoBack = null;
+        mBrowserCanGoBack = false;
+        mBrowserReload = null;
+
+        if (mBrowserContainer != null) {
+            mBrowserContainer.setVisibility(View.GONE);
+            mBrowserContainer.disposeComposition();
+        }
+        if (mActiveFileTabIndex >= 0 && mActiveFileTabIndex < mOpenFileTabs.size()) {
+            switchToFileTab(mActiveFileTabIndex);
+        } else if (!mOpenFileTabs.isEmpty()) {
+            switchToFileTab(0);
+        } else {
+            mActiveFileTabIndex = -1;
+            DrawerLayout drawer = getDrawer();
+            if (drawer != null) {
+                drawer.setVisibility(View.VISIBLE);
+            }
+            if (mTerminalView != null) {
+                mTerminalView.requestFocus();
+            }
+        }
+        updateSessionTabs();
+    }
+
+    public void switchToBrowserTab() {
+        if (!mHasBrowserTab) {
+            openBrowserTab("http://127.0.0.1:3000");
+            return;
+        }
+        mIsBrowserTabActive = true;
+        mActiveFileTabIndex = -1;
+        DrawerLayout drawer = getDrawer();
+        if (drawer != null) {
+            drawer.setVisibility(View.GONE);
+        }
+        if (mFileTabContainer != null) {
+            mFileTabContainer.setVisibility(View.GONE);
+        }
+        if (mBrowserContainer != null) {
+            mBrowserContainer.setVisibility(View.VISIBLE);
+        }
+        updateSessionTabs();
+    }
+
+    public void switchToTerminalTab(TerminalSession session) {
+        mIsBrowserTabActive = false;
+        mActiveFileTabIndex = -1;
+        if (mBrowserContainer != null) {
+            mBrowserContainer.setVisibility(View.GONE);
+        }
+        if (mFileTabContainer != null) {
+            mFileTabContainer.setVisibility(View.GONE);
+        }
+        DrawerLayout drawer = getDrawer();
+        if (drawer != null) {
+            drawer.setVisibility(View.VISIBLE);
+        }
+        if (session != null && mTermuxTerminalSessionActivityClient != null) {
+            mTermuxTerminalSessionActivityClient.setCurrentSession(session);
+        }
+        if (mTerminalView != null) {
+            mTerminalView.requestFocus();
+        }
+        updateSessionTabs();
+    }
+
+    public void openFileTab(File file) {
+        if (file == null || !file.exists()) return;
+        if (mFileTabContainer == null) {
+            mFileTabContainer = findViewById(R.id.file_tab_container);
+        }
+        if (mFileTabContainer == null) return;
+
+        // Check if already open
+        for (int i = 0; i < mOpenFileTabs.size(); i++) {
+            if (mOpenFileTabs.get(i).path.equals(file.getAbsolutePath())) {
+                switchToFileTab(i);
+                return;
+            }
+        }
+
+        FileTab newTab = new FileTab(file);
+        mOpenFileTabs.add(newTab);
+        switchToFileTab(mOpenFileTabs.size() - 1);
+    }
+
+    public void closeFileTab(int index) {
+        if (index < 0 || index >= mOpenFileTabs.size()) return;
+        mOpenFileTabs.remove(index);
+
+        if (mActiveFileTabIndex == index) {
+            if (!mOpenFileTabs.isEmpty()) {
+                int nextIndex = Math.min(index, mOpenFileTabs.size() - 1);
+                switchToFileTab(nextIndex);
+            } else {
+                mActiveFileTabIndex = -1;
+                if (mFileTabContainer != null) {
+                    mFileTabContainer.setVisibility(View.GONE);
+                    mFileTabContainer.disposeComposition();
+                }
+                if (mHasBrowserTab) {
+                    switchToBrowserTab();
+                } else {
+                    switchToTerminalTab(getCurrentSession());
+                }
+            }
+        } else if (mActiveFileTabIndex > index) {
+            mActiveFileTabIndex--;
+            updateSessionTabs();
+        } else {
+            updateSessionTabs();
+        }
+    }
+
+    public void switchToFileTab(int index) {
+        if (index < 0 || index >= mOpenFileTabs.size()) return;
+        mActiveFileTabIndex = index;
+        mIsBrowserTabActive = false;
+
+        DrawerLayout drawer = getDrawer();
+        if (drawer != null) {
+            drawer.setVisibility(View.GONE);
+        }
+        if (mBrowserContainer != null) {
+            mBrowserContainer.setVisibility(View.GONE);
+        }
+        if (mFileTabContainer == null) {
+            mFileTabContainer = findViewById(R.id.file_tab_container);
+        }
+        if (mFileTabContainer != null) {
+            mFileTabContainer.setVisibility(View.VISIBLE);
+            FileTab tab = mOpenFileTabs.get(index);
+            com.termux.app.activities.FileTabBridge.attachTo(
+                mFileTabContainer,
+                this,
+                tab.file,
+                () -> runOnUiThread(() -> closeFileTab(mActiveFileTabIndex)),
+                () -> runOnUiThread(() -> {
+                    tab.status = TAB_STATUS_FINISHED;
+                    updateSessionTabs();
+                })
+            );
+        }
+        updateSessionTabs();
+    }
+
+    private void showFileTabPopupMenu(View anchor, int index, FileTab fileTab) {
+        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
+            new String[]{"Close Tab", "Close Others", "Share File", "Copy Path"}, idx -> {
+                if (idx == 0) {
+                    closeFileTab(index);
+                } else if (idx == 1) {
+                    FileTab keep = mOpenFileTabs.get(index);
+                    mOpenFileTabs.clear();
+                    mOpenFileTabs.add(keep);
+                    switchToFileTab(0);
+                } else if (idx == 2) {
+                    shareFileUri(fileTab.file);
+                } else if (idx == 3) {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("path", fileTab.file.getAbsolutePath()));
+                        android.widget.Toast.makeText(this, "Path copied", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
+    }
+
+    private void shareFileUri(File file) {
+        try {
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(intent, "Share " + file.getName()));
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, "Share error: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showBrowserTabPopupMenu(View anchor) {
+        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
+            new String[]{"Reload", "Close"}, idx -> {
+                if (idx == 0) {
+                    if (mBrowserReload != null) {
+                        mBrowserReload.run();
+                    }
+                } else {
+                    closeBrowserTab();
+                }
+            });
+    }
+
+    /** Update the horizontal session tabs row (1-row columned tabs for terminal, browser, and files). */
     public void updateSessionTabs() {
         if (mSessionPipContainer == null || mTermuxService == null) return;
 
@@ -977,59 +1464,319 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         TerminalSession currentSession = getCurrentSession();
 
         float density   = getResources().getDisplayMetrics().density;
-        int pipWidthPx  = (int) (density * 86);
-        int pipHeightPx = (int) (density * 58);
-        int marginPx    = (int) (density * 4);
-        int labelGapPx  = (int) (density * 2);
+        int tabHeightPx = (int) (30 * density);
+        int marginPx    = (int) (6 * density);
+        int accentColor = NewTermuxTheme.getAccentColor(this);
+        View activeTabView = null;
 
+        // 1. Terminal session tabs
         for (int i = 0; i < sessions.size(); i++) {
             com.termux.shared.termux.shell.command.runner.terminal.TermuxSession termuxSession = sessions.get(i);
             TerminalSession session = termuxSession.getTerminalSession();
+            boolean isTabActive = (!mIsBrowserTabActive && mActiveFileTabIndex < 0 && session == currentSession);
 
-            // Vertical wrapper: name label on top, live pip below
-            LinearLayout wrapper = new LinearLayout(this);
-            wrapper.setOrientation(LinearLayout.VERTICAL);
-            wrapper.setGravity(Gravity.CENTER_HORIZONTAL);
-            LinearLayout.LayoutParams wrapperLp = new LinearLayout.LayoutParams(pipWidthPx, LinearLayout.LayoutParams.WRAP_CONTENT);
-            wrapperLp.setMarginEnd(marginPx);
-            wrapper.setLayoutParams(wrapperLp);
+            LinearLayout tab = new LinearLayout(this);
+            tab.setOrientation(LinearLayout.HORIZONTAL);
+            tab.setGravity(Gravity.CENTER_VERTICAL);
+            tab.setPadding((int) (8 * density), 0, (int) (4 * density), 0);
+            LinearLayout.LayoutParams tabLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, tabHeightPx);
+            tabLp.setMarginEnd(marginPx);
+            tab.setLayoutParams(tabLp);
 
-            // Session name label
-            android.widget.TextView nameLabel = new android.widget.TextView(this);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(6 * density);
+            if (isTabActive) {
+                bg.setColor(0xFF21262D);
+                bg.setStroke((int) (1.5f * density), accentColor);
+            } else {
+                bg.setColor(0xFF161B22);
+                bg.setStroke((int) (1 * density), 0xFF30363D);
+            }
+            tab.setBackground(bg);
+
+            // Leftmost status dot (Yellow = processing, Green = finished, White = standby)
+            int status = getTerminalSessionStatus(session);
+            View dot = new View(this);
+            int dotSize = (int) (7 * density);
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
+            dotLp.setMarginEnd((int) (6 * density));
+            dot.setLayoutParams(dotLp);
+            dot.setBackground(createDotDrawable(status));
+            tab.addView(dot);
+
+            // Terminal icon (>_)
+            ImageView icon = new ImageView(this);
+            int iconSize = (int) (14 * density);
+            LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+            iconLp.setMarginEnd((int) (6 * density));
+            icon.setLayoutParams(iconLp);
+            icon.setImageResource(R.drawable.ic_tab_terminal);
+            icon.setColorFilter(isTabActive ? accentColor : 0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
+            tab.addView(icon);
+
+            // Session title
+            TextView title = new TextView(this);
             String displayName = (session.mSessionName != null && !session.mSessionName.isEmpty())
                     ? session.mSessionName : "#" + (i + 1);
-            nameLabel.setText(displayName);
-            nameLabel.setTextSize(10f);
-            nameLabel.setTextColor(0xFFAAAAAA);
-            nameLabel.setMaxLines(1);
-            nameLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            nameLabel.setGravity(Gravity.CENTER_HORIZONTAL);
-            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            nameLp.bottomMargin = labelGapPx;
-            nameLabel.setLayoutParams(nameLp);
-            wrapper.addView(nameLabel);
+            title.setText(displayName);
+            title.setTypeface(android.graphics.Typeface.MONOSPACE, isTabActive ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            title.setTextSize(12f);
+            title.setTextColor(isTabActive ? 0xFFFFFFFF : 0xFFC9D1D9);
+            title.setMaxLines(1);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            title.setMaxWidth((int) (130 * density));
+            LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            titleLp.setMarginEnd((int) (4 * density));
+            title.setLayoutParams(titleLp);
+            tab.addView(title);
 
-            // Live pip preview
-            MiniTerminalPipView pip = new MiniTerminalPipView(this);
-            pip.setSession(session);
-            pip.setActive(session == currentSession);
-            pip.setLayoutParams(new LinearLayout.LayoutParams(pipWidthPx, pipHeightPx));
-            wrapper.addView(pip);
-
-            wrapper.setOnClickListener(v -> {
-                if (mTermuxTerminalSessionActivityClient != null) {
-                    mTermuxTerminalSessionActivityClient.setCurrentSession(session);
-                    updateSessionTabs();
-                }
+            // Close 'x' button
+            ImageView closeBtn = new ImageView(this);
+            int closeSize = (int) (18 * density);
+            int closePad = (int) (3 * density);
+            LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(closeSize, closeSize);
+            closeBtn.setLayoutParams(closeLp);
+            closeBtn.setPadding(closePad, closePad, closePad, closePad);
+            closeBtn.setImageResource(R.drawable.ic_tab_close);
+            closeBtn.setColorFilter(0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
+            closeBtn.setOnClickListener(v -> {
+                confirmCloseTerminalSession(session);
             });
+            tab.addView(closeBtn);
 
-            wrapper.setOnLongClickListener(v -> {
+            TabViewHolder holder = new TabViewHolder();
+            holder.type = TAB_TYPE_TERMINAL;
+            holder.session = session;
+            holder.dotView = dot;
+            holder.titleView = title;
+            holder.iconView = icon;
+            holder.currentStatus = status;
+            tab.setTag(holder);
+
+            tab.setOnClickListener(v -> switchToTerminalTab(session));
+            tab.setOnLongClickListener(v -> {
                 showSessionPopupMenu(v, session);
                 return true;
             });
 
-            mSessionPipContainer.addView(wrapper);
+            mSessionPipContainer.addView(tab);
+            if (isTabActive) activeTabView = tab;
+        }
+
+        // 2. In-tab Browser (if open)
+        if (mHasBrowserTab) {
+            boolean isBrowserActive = (mIsBrowserTabActive && mActiveFileTabIndex < 0);
+            LinearLayout bTab = new LinearLayout(this);
+            bTab.setOrientation(LinearLayout.HORIZONTAL);
+            bTab.setGravity(Gravity.CENTER_VERTICAL);
+            bTab.setPadding((int) (8 * density), 0, (int) (4 * density), 0);
+            LinearLayout.LayoutParams bTabLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, tabHeightPx);
+            bTabLp.setMarginEnd(marginPx);
+            bTab.setLayoutParams(bTabLp);
+
+            android.graphics.drawable.GradientDrawable bBg = new android.graphics.drawable.GradientDrawable();
+            bBg.setCornerRadius(6 * density);
+            if (isBrowserActive) {
+                bBg.setColor(0xFF21262D);
+                bBg.setStroke((int) (1.5f * density), accentColor);
+            } else {
+                bBg.setColor(0xFF161B22);
+                bBg.setStroke((int) (1 * density), 0xFF30363D);
+            }
+            bTab.setBackground(bBg);
+
+            // Leftmost status dot (Yellow = loading, Green = loaded, White = idle)
+            View bDot = new View(this);
+            int dotSize = (int) (7 * density);
+            LinearLayout.LayoutParams bDotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
+            bDotLp.setMarginEnd((int) (6 * density));
+            bDot.setLayoutParams(bDotLp);
+            bDot.setBackground(createDotDrawable(mBrowserTabStatus));
+            bTab.addView(bDot);
+
+            // Browser icon (Globe)
+            ImageView bIcon = new ImageView(this);
+            int iconSize = (int) (14 * density);
+            LinearLayout.LayoutParams bIconLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+            bIconLp.setMarginEnd((int) (6 * density));
+            bIcon.setLayoutParams(bIconLp);
+            bIcon.setImageResource(R.drawable.ic_tab_browser);
+            bIcon.setColorFilter(isBrowserActive ? accentColor : 0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
+            bTab.addView(bIcon);
+
+            // Browser title
+            TextView bTitle = new TextView(this);
+            bTitle.setText(mBrowserTabTitle != null ? mBrowserTabTitle : "Dev Browser");
+            bTitle.setTypeface(android.graphics.Typeface.MONOSPACE, isBrowserActive ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            bTitle.setTextSize(12f);
+            bTitle.setTextColor(isBrowserActive ? 0xFFFFFFFF : 0xFFC9D1D9);
+            bTitle.setMaxLines(1);
+            bTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            bTitle.setMaxWidth((int) (130 * density));
+            LinearLayout.LayoutParams bTitleLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            bTitleLp.setMarginEnd((int) (4 * density));
+            bTitle.setLayoutParams(bTitleLp);
+            bTab.addView(bTitle);
+
+            // Close 'x' button
+            ImageView bCloseBtn = new ImageView(this);
+            int closeSize = (int) (18 * density);
+            int closePad = (int) (3 * density);
+            LinearLayout.LayoutParams bCloseLp = new LinearLayout.LayoutParams(closeSize, closeSize);
+            bCloseBtn.setLayoutParams(bCloseLp);
+            bCloseBtn.setPadding(closePad, closePad, closePad, closePad);
+            bCloseBtn.setImageResource(R.drawable.ic_tab_close);
+            bCloseBtn.setColorFilter(0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
+            bCloseBtn.setOnClickListener(v -> closeBrowserTab());
+            bTab.addView(bCloseBtn);
+
+            TabViewHolder holder = new TabViewHolder();
+            holder.type = TAB_TYPE_BROWSER;
+            holder.dotView = bDot;
+            holder.titleView = bTitle;
+            holder.iconView = bIcon;
+            holder.currentStatus = mBrowserTabStatus;
+            bTab.setTag(holder);
+
+            bTab.setOnClickListener(v -> switchToBrowserTab());
+            bTab.setOnLongClickListener(v -> {
+                showBrowserTabPopupMenu(v);
+                return true;
+            });
+
+            mSessionPipContainer.addView(bTab);
+            if (isBrowserActive) activeTabView = bTab;
+        }
+
+        // 3. Open File Tabs
+        for (int i = 0; i < mOpenFileTabs.size(); i++) {
+            final int fileIdx = i;
+            FileTab fileTab = mOpenFileTabs.get(i);
+            boolean isFileActive = (mActiveFileTabIndex == fileIdx);
+
+            LinearLayout fTab = new LinearLayout(this);
+            fTab.setOrientation(LinearLayout.HORIZONTAL);
+            fTab.setGravity(Gravity.CENTER_VERTICAL);
+            fTab.setPadding((int) (8 * density), 0, (int) (4 * density), 0);
+            LinearLayout.LayoutParams fTabLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, tabHeightPx);
+            fTabLp.setMarginEnd(marginPx);
+            fTab.setLayoutParams(fTabLp);
+
+            android.graphics.drawable.GradientDrawable fBg = new android.graphics.drawable.GradientDrawable();
+            fBg.setCornerRadius(6 * density);
+            if (isFileActive) {
+                fBg.setColor(0xFF21262D);
+                fBg.setStroke((int) (1.5f * density), accentColor);
+            } else {
+                fBg.setColor(0xFF161B22);
+                fBg.setStroke((int) (1 * density), 0xFF30363D);
+            }
+            fTab.setBackground(fBg);
+
+            // Leftmost status dot (Standby = white, Finished/Saved = green)
+            View fDot = new View(this);
+            int dotSize = (int) (7 * density);
+            LinearLayout.LayoutParams fDotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
+            fDotLp.setMarginEnd((int) (6 * density));
+            fDot.setLayoutParams(fDotLp);
+            fDot.setBackground(createDotDrawable(fileTab.status));
+            fTab.addView(fDot);
+
+            // File icon
+            ImageView fIcon = new ImageView(this);
+            int iconSize = (int) (14 * density);
+            LinearLayout.LayoutParams fIconLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+            fIconLp.setMarginEnd((int) (6 * density));
+            fIcon.setLayoutParams(fIconLp);
+            fIcon.setImageResource(R.drawable.ic_tab_file);
+            fIcon.setColorFilter(isFileActive ? accentColor : 0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
+            fTab.addView(fIcon);
+
+            // File title
+            TextView fTitle = new TextView(this);
+            fTitle.setText(fileTab.name);
+            fTitle.setTypeface(android.graphics.Typeface.MONOSPACE, isFileActive ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            fTitle.setTextSize(12f);
+            fTitle.setTextColor(isFileActive ? 0xFFFFFFFF : 0xFFC9D1D9);
+            fTitle.setMaxLines(1);
+            fTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            fTitle.setMaxWidth((int) (130 * density));
+            LinearLayout.LayoutParams fTitleLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            fTitleLp.setMarginEnd((int) (4 * density));
+            fTitle.setLayoutParams(fTitleLp);
+            fTab.addView(fTitle);
+
+            // Close 'x' button
+            ImageView fCloseBtn = new ImageView(this);
+            int closeSize = (int) (18 * density);
+            int closePad = (int) (3 * density);
+            LinearLayout.LayoutParams fCloseLp = new LinearLayout.LayoutParams(closeSize, closeSize);
+            fCloseBtn.setLayoutParams(fCloseLp);
+            fCloseBtn.setPadding(closePad, closePad, closePad, closePad);
+            fCloseBtn.setImageResource(R.drawable.ic_tab_close);
+            fCloseBtn.setColorFilter(0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
+            fCloseBtn.setOnClickListener(v -> closeFileTab(fileIdx));
+            fTab.addView(fCloseBtn);
+
+            TabViewHolder holder = new TabViewHolder();
+            holder.type = TAB_TYPE_FILE;
+            holder.fileTab = fileTab;
+            holder.dotView = fDot;
+            holder.titleView = fTitle;
+            holder.iconView = fIcon;
+            holder.currentStatus = fileTab.status;
+            fTab.setTag(holder);
+
+            fTab.setOnClickListener(v -> switchToFileTab(fileIdx));
+            fTab.setOnLongClickListener(v -> {
+                showFileTabPopupMenu(v, fileIdx, fileTab);
+                return true;
+            });
+
+            mSessionPipContainer.addView(fTab);
+            if (isFileActive) activeTabView = fTab;
+        }
+
+        // 3. Plus "+" button for new tab
+        TextView addTab = new TextView(this);
+        addTab.setText("+");
+        addTab.setTextSize(16f);
+        addTab.setTextColor(0xFF8B949E);
+        addTab.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams((int) (28 * density), tabHeightPx);
+        addTab.setLayoutParams(addLp);
+        android.graphics.drawable.GradientDrawable addBg = new android.graphics.drawable.GradientDrawable();
+        addBg.setCornerRadius(6 * density);
+        addBg.setColor(0xFF161B22);
+        addBg.setStroke((int) (1 * density), 0xFF30363D);
+        addTab.setBackground(addBg);
+        addTab.setOnClickListener(v -> {
+            com.newtermux.features.NtPopupMenu.showAsDropDown(this, v, null,
+                new String[]{"New Terminal Tab", "New Dev Browser Tab", "Files"}, optIdx -> {
+                    if (optIdx == 0) {
+                        if (mTermuxTerminalSessionActivityClient != null) {
+                            mTermuxTerminalSessionActivityClient.addNewSession(false, null);
+                        }
+                    } else if (optIdx == 1) {
+                        openBrowserTab("http://127.0.0.1:3000");
+                    } else if (optIdx == 2) {
+                        startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class));
+                    }
+                });
+        });
+        mSessionPipContainer.addView(addTab);
+
+        // Keep active tab in view
+        if (activeTabView != null && mSessionPipContainer.getParent() instanceof android.widget.HorizontalScrollView) {
+            final View tabToShow = activeTabView;
+            final android.widget.HorizontalScrollView scroll = (android.widget.HorizontalScrollView) mSessionPipContainer.getParent();
+            scroll.post(() -> scroll.smoothScrollTo(Math.max(0, tabToShow.getLeft() - (scroll.getWidth() / 3)), 0));
         }
 
         updateStatusLineTabs(sessions, currentSession);
@@ -1106,8 +1853,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     // -----------------------------------------------------------------------------------------
 
     private static final int[] TOOLBAR_BUTTON_IDS = {
-        R.id.btn_autocorrect_toggle, R.id.btn_packages_menu, R.id.btn_clear_terminal,
-        R.id.btn_stt, R.id.btn_root_toggle, R.id.btn_settings, R.id.btn_new_session
+        R.id.btn_autocorrect_toggle, R.id.btn_files, R.id.btn_packages_menu, R.id.btn_clear_terminal,
+        R.id.btn_stt, R.id.btn_settings,
+        R.id.btn_extra_keys, R.id.btn_new_session, R.id.btn_more_menu
     };
 
     @Override
@@ -1198,9 +1946,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     /** Same as Close in the session tab menu. */
     public void closeSession(TerminalSession session) {
         if (session == null) return;
-        session.finishIfRunning();
-        if (mTermuxTerminalSessionActivityClient != null)
-            mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
+        confirmCloseTerminalSession(session);
     }
 
     /** Labels of the left drawer's buttons, in drawer order. */
@@ -1280,36 +2026,145 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                     if (mTermuxTerminalSessionActivityClient != null)
                         mTermuxTerminalSessionActivityClient.renameSession(session);
                 } else {
-                    session.finishIfRunning();
-                    if (mTermuxTerminalSessionActivityClient != null)
-                        mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
+                    confirmCloseTerminalSession(session);
                 }
             });
     }
 
+    private void confirmCloseTerminalSession(TerminalSession session) {
+        if (session == null) return;
+        if (session.isRunning()) {
+            new AlertDialog.Builder(this)
+                .setTitle("Close Session")
+                .setMessage("A process is still running in this session. Are you sure you want to terminate it?")
+                .setPositiveButton("Close", (dialog, which) -> {
+                    session.finishIfRunning();
+                    if (mTermuxTerminalSessionActivityClient != null) {
+                        mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        } else {
+            session.finishIfRunning();
+            if (mTermuxTerminalSessionActivityClient != null) {
+                mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
+            }
+        }
+    }
+
+    private void showToolbarMoreMenu(View anchor) {
+        String[] items = new String[]{
+            "Clear Terminal",
+            "Package Manager",
+            "Speech to Text",
+            "Toggle Autocorrect",
+            "Tips & Shortcuts",
+            "Settings"
+        };
+        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null, items, idx -> {
+            switch (idx) {
+                case 0: { // Clear Terminal
+                    TerminalSession session = getCurrentSession();
+                    if (session != null) {
+                        session.write("clear\n");
+                    }
+                    break;
+                }
+                case 1: { // Package Manager
+                    if (mPackageManagerMenu != null) {
+                        mPackageManagerMenu.show(anchor);
+                    }
+                    break;
+                }
+                case 2: { // Speech to Text
+                    onSTTButtonClicked();
+                    break;
+                }
+                case 3: { // Toggle Autocorrect
+                    if (mTerminalView != null) {
+                        boolean nowEnabled = !mTerminalView.isKeyboardSuggestionsEnabled();
+                        mTerminalView.setKeyboardSuggestionsEnabled(nowEnabled);
+                        if (mAutoCorrectHandler != null) mAutoCorrectHandler.setEnabled(nowEnabled);
+                        NewTermuxSettings.setKeyboardSuggestions(this, nowEnabled);
+                        TextView btnAC = findViewById(R.id.btn_autocorrect_toggle);
+                        if (btnAC != null) {
+                            int color = getResources().getColor(
+                                nowEnabled ? R.color.nt_primary : R.color.nt_on_surface, getTheme());
+                            btnAC.setTextColor(color);
+                        }
+                        showToast("Autocorrect: " + (nowEnabled ? "ON" : "OFF"), false);
+                    }
+                    break;
+                }
+                case 4: { // Tips & Shortcuts
+                    showTipsAndShortcutsDialog();
+                    break;
+                }
+                case 5: { // Settings
+                    openSettings();
+                    break;
+                }
+            }
+        });
+    }
+
+    private void showTipsAndShortcutsDialog() {
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(this);
+        int pad = Math.round(18 * getResources().getDisplayMetrics().density);
+        scrollView.setPadding(pad, pad, pad, pad);
+
+        TextView tv = new TextView(this);
+        tv.setTextSize(14f);
+        tv.setTextColor(0xFFE6EDF3);
+        tv.setLineSpacing(0, 1.25f);
+
+        String html = "<h3><b>⚡ BeTermux Tips &amp; Shortcuts</b></h3>"
+            + "<p><b>🌐 Clickable Links &amp; Paths</b><br/>"
+            + "Tap any URL or file path directly in the terminal to view it in the Dev Browser or File Viewer. Multi-line wrapped links are supported.</p>"
+            + "<p><b>🚀 Dev Browser &amp; DevTools</b><br/>"
+            + "Local web servers (ports 3000, 5173, 8080, etc.) appear as quick tabs. Tap the <b>⋮</b> browser menu to inspect elements with Eruda DevTools, view history, or toggle JavaScript.</p>"
+            + "<p><b>📁 File Manager &amp; Search</b><br/>"
+            + "Tap <b>Files</b> in the toolbar. Use the real-time search bar to filter files instantly. Preview images, PDFs, Markdown, and code directly in tabs.</p>"
+            + "<p><b>🛡️ Tab Safety &amp; Management</b><br/>"
+            + "Tap <b>+</b> to create terminal or browser tabs. Long-press a tab to rename or close. Active running processes require confirmation before closing.</p>"
+            + "<p><b>⌨️ Extra Keys &amp; Menu</b><br/>"
+            + "Toggle the keyboard shortcuts bar anytime. Tap <b>⋮ More</b> for Clear Terminal, Package Manager, Voice Input, and Settings.</p>"
+            + "<hr/><p><small style='color:#8B949E;'>BeTermux v1.0.0 • Forked by Kurixutian • Based on Termux Open Source Project</small></p>";
+
+        tv.setText(androidx.core.text.HtmlCompat.fromHtml(html, androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT));
+        scrollView.addView(tv);
+
+        new AlertDialog.Builder(this)
+            .setView(scrollView)
+            .setPositiveButton("Got It", null)
+            .show();
+    }
+
     /**
-     * Notify the pip for a specific session to redraw (called from onTextChanged).
-     * Only updates the matching pip without rebuilding the whole row.
+     * Notify the tab for a specific session to update status dot (called from onTextChanged).
+     * Updates in-place without rebuilding the whole row.
      */
     public void notifyPipUpdate(TerminalSession session) {
         DeckBridge.notifyPipUpdate(session);
         if (mSessionPipContainer == null) return;
-        for (int i = 0; i < mSessionPipContainer.getChildCount(); i++) {
-            android.view.View child = mSessionPipContainer.getChildAt(i);
-            if (child instanceof ViewGroup) {
-                ViewGroup wrapper = (ViewGroup) child;
-                for (int j = 0; j < wrapper.getChildCount(); j++) {
-                    android.view.View inner = wrapper.getChildAt(j);
-                    if (inner instanceof MiniTerminalPipView) {
-                        MiniTerminalPipView pip = (MiniTerminalPipView) inner;
-                        if (pip.getSession() == session) {
-                            pip.notifyUpdate();
-                            return;
+        runOnUiThread(() -> {
+            for (int i = 0; i < mSessionPipContainer.getChildCount(); i++) {
+                android.view.View child = mSessionPipContainer.getChildAt(i);
+                Object tag = child.getTag();
+                if (tag instanceof TabViewHolder) {
+                    TabViewHolder holder = (TabViewHolder) tag;
+                    if (holder.session == session && holder.dotView != null) {
+                        int newStatus = getTerminalSessionStatus(session);
+                        if (holder.currentStatus != newStatus) {
+                            holder.currentStatus = newStatus;
+                            applyStatusDotColor(holder.dotView, newStatus);
                         }
+                        return;
                     }
                 }
             }
-        }
+        });
     }
 
     public void onSTTButtonClicked() {
@@ -1512,6 +2367,23 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             });
             container.addView(pkgBtn);
         }
+
+        // Tips & Shortcuts button in drawer
+        MaterialButton tipsBtn = new MaterialButton(this,
+            null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        LinearLayout.LayoutParams lpTips = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lpTips.bottomMargin = marginBtm;
+        tipsBtn.setLayoutParams(lpTips);
+        tipsBtn.setStrokeColor(accentCsl);
+        tipsBtn.setTextColor(accentColor);
+        tipsBtn.setText("Tips & Shortcuts");
+        tipsBtn.setOnClickListener(v -> {
+            getDrawer().closeDrawers();
+            showTipsAndShortcutsDialog();
+        });
+        container.addView(tipsBtn);
+        anyUtility = true;
 
         // Divider between utility and custom buttons
         if (anyUtility) {
@@ -1718,8 +2590,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     @Override
     public void onBackPressed() {
         DrawerLayout drawer = getDrawer();
-        if (drawer.isDrawerOpen(Gravity.LEFT) || drawer.isDrawerOpen(Gravity.RIGHT)) {
+        if (drawer != null && (drawer.isDrawerOpen(Gravity.LEFT) || drawer.isDrawerOpen(Gravity.RIGHT))) {
             drawer.closeDrawers();
+        } else if (mActiveFileTabIndex >= 0) {
+            closeFileTab(mActiveFileTabIndex);
+        } else if (mIsBrowserTabActive) {
+            if (mBrowserCanGoBack && mBrowserGoBack != null) {
+                mBrowserGoBack.run();
+            } else {
+                switchToTerminalTab(getCurrentSession());
+            }
         } else {
             finishActivityIfNotFinishing();
         }

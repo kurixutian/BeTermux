@@ -3,6 +3,8 @@ package com.termux.app.terminal;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.view.View;
 
@@ -14,28 +16,31 @@ import com.termux.view.TerminalRenderer;
 /**
  * A tiny live-preview pip of a TerminalSession. Scales the full terminal screen down to fit
  * its view bounds using Canvas.scale(), preserving all colors and cursor state.
- * Call notifyUpdate() from onTextChanged() to keep it live.
+ * Rendered with modern anti-aliased rounded corners and glowing accent border when active.
  */
 public class MiniTerminalPipView extends View {
 
     private TerminalSession mSession;
     private final TerminalRenderer mRenderer;
-    private final Paint mBorderPaint = new Paint();
-    private final Paint mBgPaint = new Paint();
+    private final Paint mBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path mClipPath = new Path();
+    private final RectF mBounds = new RectF();
     private boolean mIsActive = false;
 
-    // Border colors
-    private static final int COLOR_BORDER_ACTIVE  = 0xFFBB86FC;
-    private static final int COLOR_BORDER_INACTIVE = 0xFF444444;
-    private static final float BORDER_WIDTH = 2.5f;
+    private int mActiveColor = 0xFF8B5CF6;
+    private static final int COLOR_BORDER_INACTIVE = 0xFF30363D;
+    private static final float CORNER_RADIUS_DP = 8f;
+
+    public void setActiveColor(int color) {
+        mActiveColor = color;
+        invalidate();
+    }
 
     public MiniTerminalPipView(Context context) {
         super(context);
-        // Font size just needs to give reasonable glyph proportions before scaling.
         mRenderer = new TerminalRenderer(12, Typeface.MONOSPACE);
         mBorderPaint.setStyle(Paint.Style.STROKE);
-        mBorderPaint.setStrokeWidth(BORDER_WIDTH);
-        mBorderPaint.setAntiAlias(false);
         mBgPaint.setStyle(Paint.Style.FILL);
     }
 
@@ -61,17 +66,27 @@ public class MiniTerminalPipView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        float density = getResources().getDisplayMetrics().density;
+        float radius = CORNER_RADIUS_DP * density;
+        float strokeWidth = (mIsActive ? 2.5f : 1.2f) * density;
+        mBorderPaint.setStrokeWidth(strokeWidth);
+
+        mBounds.set(0, 0, getWidth(), getHeight());
+        mClipPath.reset();
+        mClipPath.addRoundRect(mBounds, radius, radius, Path.Direction.CW);
+
         TerminalEmulator emulator = (mSession != null) ? mSession.getEmulator() : null;
 
+        canvas.save();
+        canvas.clipPath(mClipPath);
+
         if (emulator == null) {
-            // Draw placeholder
-            mBgPaint.setColor(0xFF1A1A1A);
-            canvas.drawRect(0, 0, getWidth(), getHeight(), mBgPaint);
+            mBgPaint.setColor(0xFF161B22);
+            canvas.drawRect(mBounds, mBgPaint);
         } else {
-            // Fill background with terminal's background color
             int bgColor = emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND];
-            mBgPaint.setColor(bgColor);
-            canvas.drawRect(0, 0, getWidth(), getHeight(), mBgPaint);
+            mBgPaint.setColor(bgColor != 0 ? bgColor : 0xFF0D1117);
+            canvas.drawRect(mBounds, mBgPaint);
 
             float rendererW = mRenderer.getFontWidth() * emulator.mColumns;
             float rendererH = mRenderer.getFontLineSpacing() * emulator.mRows;
@@ -85,10 +100,12 @@ public class MiniTerminalPipView extends View {
                 canvas.restore();
             }
         }
+        canvas.restore();
 
-        // Border — accent when active, dim when inactive
-        mBorderPaint.setColor(mIsActive ? COLOR_BORDER_ACTIVE : COLOR_BORDER_INACTIVE);
-        float half = BORDER_WIDTH / 2f;
-        canvas.drawRect(half, half, getWidth() - half, getHeight() - half, mBorderPaint);
+        // Rounded border — vibrant accent when active, sleek slate when inactive
+        mBorderPaint.setColor(mIsActive ? mActiveColor : COLOR_BORDER_INACTIVE);
+        float half = strokeWidth / 2f;
+        mBounds.set(half, half, getWidth() - half, getHeight() - half);
+        canvas.drawRoundRect(mBounds, radius, radius, mBorderPaint);
     }
 }
