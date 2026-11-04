@@ -89,14 +89,23 @@ android {
             storePassword 'xrj45yWGLbsO7W0v'
             keyPassword 'xrj45yWGLbsO7W0v'
         }
+        release {
+            storeFile file('betermux-release.jks')
+            keyAlias 'betermux'
+            storePassword 'betermux2026'
+            keyPassword 'betermux2026'
+        }
     }
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources false // Reproducible builds
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            buildConfigField "boolean", "IS_DEMO", "false"
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+            debuggable false
+            buildConfigField "boolean", "IS_DEMO", "true"
+            manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.kurixutian.betermux"
+            manifestPlaceholders.TERMUX_APP_NAME = "BeTermux"
         }
 
         debug {
@@ -104,12 +113,15 @@ android {
             buildConfigField "boolean", "IS_DEMO", "false"
         }
 
-        // BeTermux fork build: installs as com.kurixutian.betermux alongside original Termux.
+        // BeTermux release build: installs as com.kurixutian.betermux alongside original Termux.
         // Interactive shell, settings/toolbar/drawer/theming fully live without conflicting with com.termux.
         demo {
-            initWith debug
+            initWith release
+            signingConfig signingConfigs.release
+            debuggable false
+            minifyEnabled false
             buildConfigField "boolean", "IS_DEMO", "true"
-            matchingFallbacks = ['debug']  // library submodules don't have 'demo', fall back to debug
+            matchingFallbacks = ['release', 'debug']
             manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.kurixutian.betermux"
             manifestPlaceholders.TERMUX_APP_NAME = "BeTermux"
         }
@@ -159,9 +171,9 @@ android {
             } else if (variant.buildType.name == "release") {
                 def abi = output.getFilter(com.android.build.OutputFile.ABI)
                 outputFileName = new File("termux-app_" + (apkVersionTag ? apkVersionTag : project.ext.packageVariant + "-" + "release") + "_" + (abi ? abi : "universal") + ".apk")
-            } else if (variant.buildType.name == "demo") {
+            } else if (variant.buildType.name == "demo" || variant.buildType.name == "release") {
                 def abi = output.getFilter(com.android.build.OutputFile.ABI)
-                outputFileName = new File("betermux-v1.0.0_" + (abi ? abi : "universal") + ".apk")
+                outputFileName = new File("BeTermux-v1.0.0-release_" + (abi ? abi : "universal") + ".apk")
             }
         }
     }
