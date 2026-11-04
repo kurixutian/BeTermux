@@ -13,43 +13,55 @@ BeTermux is a customized terminal emulator for Android with a modern Warp-inspir
 ## Contents
 
 - [Features](#features)
+  - [Warp-Inspired Design & Toolbar](#warp-inspired-design--toolbar)
+  - [Integrated Dev Browser](#integrated-dev-browser)
+  - [Enhanced File Manager & Multi-Format Viewer](#enhanced-file-manager--multi-format-viewer)
+  - [Process Safety & Session Protection](#process-safety--session-protection)
+  - [Unified Tabbed Workflow](#unified-tabbed-workflow)
+  - [Package & SSH Management](#package--ssh-management)
+  - [Built-In Backup & Restore](#built-in-backup--restore)
 - [Installation](#installation)
 - [Building from source](#building-from-source)
 - [Credits & license](#credits--license)
-- [Community](#community)
 
 ---
 
 ## Features
 
-### Terminal & shell
-- Full terminal emulator built on the upstream Termux engine — **100% package compatible**.
-- **zsh + Oh My Zsh** configured automatically on first launch, with an optional toggle for autosuggestions and syntax highlighting (bundled, no download required).
-- Always-visible **session tabs**: one-tap `×` to close, long-press to rename.
+### Warp-Inspired Design & Toolbar
+- **Distilled 4-Action Toolbar**: Cleaned up the cluttered header into 4 clear controls: `Files`, `Extra Keys`, `+ (New Tab)`, and an overflow `⋮ More` popup menu.
+- **Deep Slate/Charcoal Visual Palette**: High-contrast, modern dark UI styling inspired by modern desktop terminals like Warp.
+- **Accent Theming & Color Schemes**: Customize primary accent colors and switch between terminal color themes (Dracula, Nord, Tokyo Night, Gruvbox, etc.) or design your own ANSI palette.
 
-### Modern UI & theming
-- Clean **Material 3 dark** interface, built in **Jetpack Compose** (v1.6.0).
-- Consistent rounded, outlined pop-out menus and drawers throughout.
-- **9 accent presets** plus a fully custom accent via an HSV color wheel or RGB sliders.
-- **13 built-in terminal color themes** (Dracula, Nord, Gruvbox, Tokyo Night, Solarized, and more) plus a live **custom-theme editor** for the background, foreground, cursor and all 16 ANSI colors.
+### Integrated Dev Browser
+- **Built-in Web Preview**: Test local web servers and web apps directly inside BeTermux without switching out of the app.
+- **Eruda DevTools Injection**: Inspect elements, view console logs, inspect network calls, and run DOM debugging tools directly on mobile.
+- **Smart Local Port Shortcuts**: Quick one-tap address bar presets for common local development ports (`3000`, `5173`, `8000`, `8080`, etc.).
+- **Browsing History & Navigation**: Forward, back, refresh, and history tracking built into the browser interface.
 
-### Built-in managers
-- **Package Manager** — browse installed packages, search the catalog, and install or remove from the toolbar.
-- **File Manager** — browse, view, edit, create, delete and share files in your Termux home directory.
-- **SSH Manager** — save connection profiles (host, port, user, key path and port-forwarding tunnels) and connect in a tap.
+### Enhanced File Manager & Multi-Format Viewer
+- **Real-Time Live Search**: Instantly filter files and folders as you type in your home directory and shared storage.
+- **Multi-Format Previews**: View files directly in-app:
+  - **Images**: High-resolution image viewer with automatic bitmap downsampling to prevent memory leaks (OOM).
+  - **PDF Documents**: Native rendered PDF page previews with page recycling.
+  - **Markdown & Code**: Formatted Markdown rendering and built-in code/script editor.
+- **Storage Switcher**: Seamlessly toggle between private Termux `$HOME` and device Shared Storage (`/sdcard`).
 
-### Productivity
-- **Text Expansion** — type a short trigger (e.g. `;ll`) then Space/Tab to expand it (e.g. `ls -la`).
-- **Startup script** — sourced into every new session so aliases and env vars persist; editable from Settings.
-- **Speech-to-Text** input, inline **command autocorrect**, and **URL detection** (long-press a link to open or copy).
+### Process Safety & Session Protection
+- **Accidental Termination Guard**: Prevents closing terminal sessions when background tasks, compilations, or CLI agents (like OpenCode or Python scripts) are actively running.
+- **Process Confirmation Dialog**: Warns with active process names and PIDs before session destruction, with a "Do not ask again" preference.
 
-### Customizable toolbar & drawer
-- Toolbar buttons you can show/hide individually: **AC** (autocorrect), **Root** shell, **STT**, **Packages**, **Clear**, and **Settings**.
-- Left-drawer utilities — **Export Screen**, **Make Script**, **Pkg Update** — plus up to **10 custom command buttons** (long-press to edit, `+`/`−` to resize).
-- Collapsible **extra-keys** row, optionally moved into a swipe-in right-side drawer.
+### Unified Tabbed Workflow
+- **Multi-Tab Architecture**: Open and manage multiple concurrent terminal sessions, browser instances, and file previews in a clean top tab strip.
+- **One-Tap Controls**: Tap `×` to close, tap `+` to add a session, and long-press to rename or customize sessions.
 
-### Backup & restore
-- One-tap **basic** (home) or **full** (home + usr) `.tar.gz` backup and restore through the system file picker.
+### Package & SSH Management
+- **Visual Package Manager**: Search, install, update, and remove packages from the Termux repository with visual confirmation.
+- **SSH Connection Manager**: Store host profiles, ports, usernames, and SSH keys for one-tap remote server management.
+
+### Built-In Backup & Restore
+- **Complete Environment Backup**: Create compressed `.tar.gz` backups of your `$HOME` directory or full system environment.
+- **One-Tap Restore**: Restore projects, dotfiles, and configurations using the Android system file picker with universal tar support.
 
 ---
 
