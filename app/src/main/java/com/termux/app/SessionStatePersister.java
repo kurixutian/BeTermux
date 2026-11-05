@@ -40,6 +40,7 @@ public final class SessionStatePersister {
         public String  name;
         public String  cwd;
         public boolean failsafe;
+        public String  resumeCommand;
     }
 
     private static File stateFile() {
@@ -59,8 +60,27 @@ public final class SessionStatePersister {
                 if (ec == null) continue;
                 JSONObject o = new JSONObject();
                 o.put("name",     ec.shellName        == null ? "" : ec.shellName);
-                o.put("cwd",      ec.workingDirectory == null ? "" : ec.workingDirectory);
-                o.put("failsafe", ec.isFailsafe);
+
+                int pid = s.getTerminalSession() != null ? s.getTerminalSession().getPid() : -1;
+                String cwd = ec.workingDirectory == null ? "" : ec.workingDirectory;
+                String resumeCmd = "";
+
+                if (pid > 0) {
+                    try {
+                        File cwdLink = new File("/proc/" + pid + "/cwd");
+                        if (cwdLink.exists()) {
+                            cwd = cwdLink.getCanonicalPath();
+                        }
+                    } catch (Exception ignored) { }
+
+                    try {
+                        resumeCmd = detectResumeCommand(pid);
+                    } catch (Exception ignored) { }
+                }
+
+                o.put("cwd",            cwd);
+                o.put("failsafe",       ec.isFailsafe);
+                o.put("resume_command", resumeCmd);
                 arr.put(o);
             }
             File f   = stateFile();
@@ -75,6 +95,96 @@ public final class SessionStatePersister {
         } catch (Exception ignored) { }
     }
 
+    private static String detectResumeCommand(int pid) {
+        int tpgid = -1;
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader("/proc/" + pid + "/stat"), 256)) {
+            String line = reader.readLine();
+            if (line != null) {
+                int closeParen = line.lastIndexOf(')');
+                if (closeParen != -1 && closeParen + 2 < line.length()) {
+                    String rest = line.substring(closeParen + 2).trim();
+                    String[] tokens = rest.split("\\s+");
+                    if (tokens.length > 5) {
+                        int pgrp = Integer.parseInt(tokens[2]);
+                        int fg = Integer.parseInt(tokens[5]);
+                        if (fg > 0 && fg != pgrp && fg != pid) {
+                            tpgid = fg;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+
+        if (tpgid <= 0) return "";
+
+        try {
+            byte[] bytes = Files.readAllBytes(Paths.get("/proc/" + tpgid + "/cmdline"));
+            if (bytes.length == 0) return "";
+            String cmdline = new String(bytes, java.nio.charset.StandardCharsets.UTF_8).replace('\0', ' ').trim();
+            String firstArg = cmdline.split("\\s+")[0];
+            String binaryName = new File(firstArg).getName();
+
+            // Check if node/python wrapper was used
+            if ((binaryName.equals("node") || binaryName.equals("python") || binaryName.equals("python3") || binaryName.equals("sh") || binaryName.equals("bash"))
+                    && cmdline.split("\\s+").length > 1) {
+                String secondArg = cmdline.split("\\s+")[1];
+                binaryName = new File(secondArg).getName();
+            }
+
+            if (binaryName.equals("agy")) {
+                String convId = findAgyConversationId(tpgid);
+                if (convId != null && !convId.isEmpty()) {
+                    return "agy --conversation " + convId;
+                }
+                return "agy -c";
+            } else if (binaryName.equals("opencode") || binaryName.startsWith("opencode")) {
+                String[] parts = cmdline.split("\\s+");
+                for (int i = 0; i < parts.length - 1; i++) {
+                    if ("-s".equals(parts[i]) || "--session".equals(parts[i])) {
+                        return "opencode --session " + parts[i + 1];
+                    }
+                }
+                return "opencode -c";
+            } else if (binaryName.equals("gemini")) {
+                String[] parts = cmdline.split("\\s+");
+                for (int i = 0; i < parts.length - 1; i++) {
+                    if ("-r".equals(parts[i]) || "--resume".equals(parts[i])) {
+                        return "gemini -r " + parts[i + 1];
+                    }
+                }
+                return "gemini -r latest";
+            }
+        } catch (Exception ignored) { }
+
+        return "";
+    }
+
+    private static String findAgyConversationId(int pid) {
+        try {
+            File fdDir = new File("/proc/" + pid + "/fd");
+            File[] fds = fdDir.listFiles();
+            if (fds != null) {
+                for (File f : fds) {
+                    try {
+                        String target = f.getCanonicalPath();
+                        if (target.contains("presence/") && target.endsWith(".lock")) {
+                            int slash = target.lastIndexOf('/');
+                            if (slash != -1) {
+                                return target.substring(slash + 1, target.length() - 5);
+                            }
+                        } else if (target.contains("conversations/") && target.endsWith(".db")) {
+                            int slash = target.lastIndexOf('/');
+                            if (slash != -1) {
+                                return target.substring(slash + 1, target.length() - 3);
+                            }
+                        }
+                    } catch (Exception ignored) { }
+                }
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
     /** Best-effort load of the last snapshot. Never throws; returns an empty list on any failure. */
     public static List<Snapshot> load() {
         List<Snapshot> out = new ArrayList<>();
@@ -86,9 +196,10 @@ public final class SessionStatePersister {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 Snapshot s = new Snapshot();
-                s.name     = o.optString("name", "");
-                s.cwd      = o.optString("cwd",  "");
-                s.failsafe = o.optBoolean("failsafe", false);
+                s.name          = o.optString("name", "");
+                s.cwd           = o.optString("cwd",  "");
+                s.failsafe      = o.optBoolean("failsafe", false);
+                s.resumeCommand = o.optString("resume_command", "");
                 out.add(s);
             }
         } catch (Exception ignored) { }

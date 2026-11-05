@@ -424,9 +424,10 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         if (snaps.isEmpty()) return;
 
         Logger.logInfo(LOG_TAG, "Restoring " + snaps.size() + " session(s) from persisted state");
-        for (SessionStatePersister.Snapshot s : snaps) {
+        for (int i = 0; i < snaps.size(); i++) {
+            SessionStatePersister.Snapshot s = snaps.get(i);
             try {
-                createTermuxSession(
+                TermuxSession newSession = createTermuxSession(
                     /* executablePath   */ null,   // default login shell
                     /* arguments        */ null,
                     /* stdin            */ null,
@@ -436,6 +437,19 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                     /* isFailSafe       */ s.failsafe,
                     /* sessionName      */ s.name
                 );
+
+                if (newSession != null && s.resumeCommand != null && !s.resumeCommand.trim().isEmpty()) {
+                    final String cmd = s.resumeCommand.trim();
+                    final TermuxSession ts = newSession;
+                    final int delay = 400 + (i * 250);
+                    mHandler.postDelayed(() -> {
+                        try {
+                            if (ts.getTerminalSession() != null && ts.getTerminalSession().isRunning()) {
+                                ts.getTerminalSession().write(cmd + "\n");
+                            }
+                        } catch (Exception ignored) { }
+                    }, delay);
+                }
             } catch (Throwable t) {
                 Logger.logError(LOG_TAG, "Restore failed for session '" + s.name + "': " + t);
             }
