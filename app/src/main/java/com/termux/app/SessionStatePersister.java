@@ -145,6 +145,10 @@ public final class SessionStatePersister {
                     }
                 }
                 return "opencode -c";
+            } else if (binaryName.equals("claude")) {
+                return "claude --continue";
+            } else if (binaryName.equals("codex")) {
+                return "codex resume";
             } else if (binaryName.equals("gemini")) {
                 String[] parts = cmdline.split("\\s+");
                 for (int i = 0; i < parts.length - 1; i++) {
