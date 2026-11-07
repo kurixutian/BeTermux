@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -58,7 +59,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -66,6 +66,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -115,11 +117,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.newtermux.compose.NewTermuxComposeTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TreeSet
 import java.util.function.BiConsumer
 import java.util.function.Consumer
 
@@ -131,10 +140,59 @@ data class HistoryEntry(
 
 private const val PREFS_BROWSER = "newtermux_dev_browser"
 private const val PREF_KEY_HISTORY = "history_json"
-private const val PREF_KEY_ERUDA = "eruda_enabled"
 private const val PREF_KEY_DESKTOP_DEFAULT = "desktop_default"
 private const val PREF_KEY_JS_ENABLED = "js_enabled"
 private const val PREF_KEY_DOM_STORAGE = "dom_storage"
+private const val PREF_KEY_PAGE_ZOOM = "page_zoom"
+
+object LocalhostPortScanner {
+    private val COMMON_DEV_PORTS = intArrayOf(
+        3000, 3001, 4000, 4173, 4200, 4321, 5000, 5173, 5174, 5500, 8000, 8080, 8081, 8787, 8888, 9000
+    )
+
+    @JvmStatic
+    fun scanLivePorts(): List<Int> {
+        val found = TreeSet<Int>()
+        parseProcNetTcp("/proc/net/tcp", found)
+        parseProcNetTcp("/proc/net/tcp6", found)
+        for (port in COMMON_DEV_PORTS) {
+            if (port in found) continue
+            try {
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress("127.0.0.1", port), 15)
+                    found.add(port)
+                }
+            } catch (_: Exception) {}
+        }
+        return found.toList()
+    }
+
+    private fun parseProcNetTcp(path: String, out: MutableSet<Int>) {
+        try {
+            val file = File(path)
+            if (!file.canRead()) return
+            file.forEachLine { line ->
+                val parts = line.trim().split(Regex("\\s+"))
+                if (parts.size >= 4 && parts[3].equals("0A", ignoreCase = true)) {
+                    val localAddr = parts[1]
+                    val ipHex = localAddr.substringBefore(':').uppercase(Locale.ROOT)
+                    val portHex = localAddr.substringAfter(':', "")
+                    val isLocalOrAny = ipHex == "0100007F" ||
+                        ipHex == "00000000" ||
+                        ipHex == "00000000000000000000000001000000" ||
+                        ipHex == "00000000000000000000000000000000" ||
+                        ipHex == "0000000000000000FFFF00000100007F"
+                    if (isLocalOrAny && portHex.isNotEmpty()) {
+                        val port = portHex.toIntOrNull(16)
+                        if (port != null && port in 1024..65535) {
+                            out.add(port)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+}
 
 private val historyDateFormat by lazy { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
 private fun formatHistoryDate(timestamp: Long): String = try {
@@ -160,25 +218,6 @@ private fun isLocalDevUrl(urlStr: String?): Boolean {
         false
     }
 }
-
-private const val ERUDA_INJECT_JS = """
-(function() {
-    if (window.__eruda_injected) {
-        if (window.eruda) window.eruda.show();
-        return;
-    }
-    window.__eruda_injected = true;
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/eruda';
-    s.onload = function() {
-        if (window.eruda) {
-            window.eruda.init();
-            window.eruda.show();
-        }
-    };
-    document.head.appendChild(s);
-})();
-"""
 
 private fun loadBrowserHistory(context: Context): MutableList<HistoryEntry> {
     val prefs = context.getSharedPreferences(PREFS_BROWSER, Context.MODE_PRIVATE)
@@ -235,9 +274,15 @@ class DevBrowserActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val startUrl = intent?.dataString
+            ?: intent?.getStringExtra("INITIAL_URL")
+            ?: "https://www.google.com"
         setContent {
             NewTermuxComposeTheme(this) {
-                EmbeddedDevBrowser(onClose = { finish() })
+                EmbeddedDevBrowser(
+                    initialUrl = startUrl,
+                    onClose = { finish() }
+                )
             }
         }
     }
@@ -248,6 +293,7 @@ object DevBrowserBridge {
     fun attachTo(
         composeView: ComposeView,
         context: Context,
+        initialUrl: String,
         onTitleChanged: Consumer<String>,
         onLoadingChanged: Consumer<Boolean>,
         onClose: Runnable,
@@ -257,6 +303,7 @@ object DevBrowserBridge {
         composeView.setContent {
             NewTermuxComposeTheme(context) {
                 EmbeddedDevBrowser(
+                    initialUrl = initialUrl.ifBlank { "https://www.google.com" },
                     onTitleChanged = { onTitleChanged.accept(it) },
                     onLoadingChanged = { onLoadingChanged.accept(it) },
                     onClose = { onClose.run() },
@@ -343,7 +390,7 @@ private const val INSPECTOR_JS = """
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun EmbeddedDevBrowser(
-    initialUrl: String = "http://127.0.0.1:3000",
+    initialUrl: String = "https://www.google.com",
     onTitleChanged: ((String) -> Unit)? = null,
     onLoadingChanged: ((Boolean) -> Unit)? = null,
     onClose: (() -> Unit)? = null,
@@ -360,6 +407,15 @@ fun EmbeddedDevBrowser(
     val desktopUserAgent = remember {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
+    val mobileUserAgent = remember {
+        try {
+            WebSettings.getDefaultUserAgent(context)
+                .replace("; wv", "")
+                .replace("Version/4.0 ", "")
+        } catch (_: Exception) {
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
+    }
 
     var inspectMode by remember { mutableStateOf(false) }
     var selectedElement by remember { mutableStateOf<ElementInfo?>(null) }
@@ -369,11 +425,7 @@ fun EmbeddedDevBrowser(
     val browserPrefs = remember { context.getSharedPreferences(PREFS_BROWSER, Context.MODE_PRIVATE) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
-    var showExtensionsSheet by remember { mutableStateOf(false) }
 
-    var erudaEnabled by remember {
-        mutableStateOf(browserPrefs.getBoolean(PREF_KEY_ERUDA, false))
-    }
     var defaultDesktopMode by remember {
         mutableStateOf(browserPrefs.getBoolean(PREF_KEY_DESKTOP_DEFAULT, false))
     }
@@ -382,6 +434,23 @@ fun EmbeddedDevBrowser(
     }
     var domStorage by remember {
         mutableStateOf(browserPrefs.getBoolean(PREF_KEY_DOM_STORAGE, true))
+    }
+    var pageZoom by remember {
+        mutableIntStateOf(browserPrefs.getInt(PREF_KEY_PAGE_ZOOM, 100).coerceIn(50, 300))
+    }
+
+    val livePorts = remember { mutableStateListOf<Int>() }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val detected = withContext(Dispatchers.IO) {
+                LocalhostPortScanner.scanLivePorts()
+            }
+            if (detected != livePorts.toList()) {
+                livePorts.clear()
+                livePorts.addAll(detected)
+            }
+            delay(2000)
+        }
     }
 
     val historyList = remember { mutableStateListOf<HistoryEntry>().apply { addAll(loadBrowserHistory(context)) } }
@@ -424,7 +493,22 @@ fun EmbeddedDevBrowser(
         }
     }
 
-    val quickPorts = listOf(":3000", ":5173", ":8000", ":8080", ":5500", "127.0.0.1:3000")
+    val quickPorts = listOf(":3000", ":5173", ":8000", ":8080", ":5500", "localhost:3000")
+
+    fun applyPageZoom(wv: WebView?, zoom: Int) {
+        wv?.settings?.textZoom = zoom
+        wv?.evaluateJavascript(
+            "if (document.documentElement) { document.documentElement.style.zoom = '${zoom}%'; }",
+            null
+        )
+    }
+
+    fun updateZoom(newZoom: Int) {
+        val clamped = newZoom.coerceIn(50, 300)
+        pageZoom = clamped
+        browserPrefs.edit().putInt(PREF_KEY_PAGE_ZOOM, clamped).apply()
+        applyPageZoom(webViewRef, clamped)
+    }
 
     fun evaluateInspection(enabled: Boolean) {
         webViewRef?.evaluateJavascript(INSPECTOR_JS) {
@@ -432,22 +516,33 @@ fun EmbeddedDevBrowser(
         }
     }
 
-    fun loadUrl(input: String) {
+    fun normalizeUrl(input: String): String {
         val trimmed = input.trim()
-        val finalUrl = when {
-            trimmed.startsWith("http://localhost") -> "http://127.0.0.1" + trimmed.removePrefix("http://localhost")
-            trimmed.startsWith("https://localhost") -> "https://127.0.0.1" + trimmed.removePrefix("https://localhost")
+        return when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-            trimmed.startsWith(":") -> "http://127.0.0.1$trimmed"
-            trimmed.startsWith("localhost") -> "http://127.0.0.1" + trimmed.removePrefix("localhost")
+            trimmed.startsWith(":") -> "http://localhost$trimmed"
+            trimmed.startsWith("localhost") -> "http://$trimmed"
             trimmed.startsWith("127.0.0.1") -> "http://$trimmed"
             trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
-            trimmed.isEmpty() -> "http://127.0.0.1:3000"
-            else -> "http://127.0.0.1:3000"
+            trimmed.isEmpty() -> "https://www.google.com"
+            else -> "https://www.google.com/search?q=${Uri.encode(trimmed)}"
         }
+    }
+
+    fun loadUrl(input: String) {
+        val finalUrl = normalizeUrl(input)
         urlText = finalUrl
         currentUrl = finalUrl
         webViewRef?.loadUrl(finalUrl)
+    }
+
+    LaunchedEffect(initialUrl) {
+        val target = normalizeUrl(initialUrl)
+        if (target != currentUrl) {
+            urlText = target
+            currentUrl = target
+            webViewRef?.loadUrl(target)
+        }
     }
 
     LaunchedEffect(inspectMode) {
@@ -465,8 +560,6 @@ fun EmbeddedDevBrowser(
             showHistorySheet = false
         } else if (showSettingsSheet) {
             showSettingsSheet = false
-        } else if (showExtensionsSheet) {
-            showExtensionsSheet = false
         } else if (showDevToolsSheet) {
             showDevToolsSheet = false
         } else if (isUrlFocused) {
@@ -624,7 +717,7 @@ fun EmbeddedDevBrowser(
                         onClick = {
                             isDesktopMode = !isDesktopMode
                             webViewRef?.settings?.apply {
-                                userAgentString = if (isDesktopMode) desktopUserAgent else null
+                                userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
                                 useWideViewPort = true
                                 loadWithOverviewMode = isDesktopMode
                             }
@@ -661,7 +754,7 @@ fun EmbeddedDevBrowser(
                         )
                     }
 
-                    // 3-Dots Menu Button (History, Extensions, Settings, Close)
+                    // 3-Dots Menu Button (Zoom, History, Settings, Close)
                     var moreMenuOpen by remember { mutableStateOf(false) }
 
                     Box {
@@ -681,6 +774,48 @@ fun EmbeddedDevBrowser(
                             expanded = moreMenuOpen,
                             onDismissRequest = { moreMenuOpen = false }
                         ) {
+                            // Page Zoom Controls (- | 100% | +)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Zoom",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = { updateZoom(pageZoom - 15) },
+                                        enabled = pageZoom > 50,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Filled.ZoomOut, contentDescription = "Zoom Out", modifier = Modifier.size(18.dp))
+                                    }
+                                    TextButton(
+                                        onClick = { updateZoom(100) }
+                                    ) {
+                                        Text(
+                                            "${pageZoom}%",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { updateZoom(pageZoom + 15) },
+                                        enabled = pageZoom < 300,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Filled.ZoomIn, contentDescription = "Zoom In", modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                             DropdownMenuItem(
                                 text = { Text("History") },
                                 leadingIcon = {
@@ -689,16 +824,6 @@ fun EmbeddedDevBrowser(
                                 onClick = {
                                     moreMenuOpen = false
                                     showHistorySheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Extensions / Add-ons") },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Extension, contentDescription = null, modifier = Modifier.size(18.dp))
-                                },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    showExtensionsSheet = true
                                 }
                             )
                             DropdownMenuItem(
@@ -729,8 +854,8 @@ fun EmbeddedDevBrowser(
                 }
             }
 
-            // Quick Port Presets - ONLY appears when the URL input box is focused / clicked!
-            if (isUrlFocused) {
+            // Live Localhost & Quick Port Presets Bar
+            if (isUrlFocused || livePorts.isNotEmpty()) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.fillMaxWidth()
@@ -744,29 +869,70 @@ fun EmbeddedDevBrowser(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Ports:",
+                            if (livePorts.isNotEmpty()) "Live:" else "Ports:",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (livePorts.isNotEmpty()) Color(0xFF3FB950) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (livePorts.isNotEmpty()) FontWeight.Bold else FontWeight.Normal,
                             modifier = Modifier.padding(end = 2.dp)
                         )
-                        quickPorts.forEach { port ->
+                        livePorts.forEach { portNum ->
+                            val portStr = ":$portNum"
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                                color = Color(0xFF1A2F23),
+                                border = BorderStroke(1.dp, Color(0xFF3FB950)),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(14.dp))
                                     .clickable {
-                                        loadUrl(port)
+                                        loadUrl("http://localhost:$portNum")
                                         focusManager.clearFocus()
                                     }
                             ) {
-                                Text(
-                                    port,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF3FB950))
+                                    )
+                                    Text(
+                                        portStr,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = Color(0xFF3FB950)
+                                    )
+                                }
+                            }
+                        }
+                        if (isUrlFocused) {
+                            quickPorts.filter { preset ->
+                                val num = preset.removePrefix(":").toIntOrNull()
+                                num == null || num !in livePorts
+                            }.forEach { port ->
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable {
+                                            loadUrl(port)
+                                            focusManager.clearFocus()
+                                        }
+                                ) {
+                                    Text(
+                                        port,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -787,9 +953,18 @@ fun EmbeddedDevBrowser(
                             )
                             setLayerType(View.LAYER_TYPE_HARDWARE, null)
                             webViewRef = this
+
+                            try {
+                                val cm = CookieManager.getInstance()
+                                cm.setAcceptCookie(true)
+                                cm.setAcceptThirdPartyCookies(this, true)
+                            } catch (_: Exception) {}
+
                             settings.apply {
                                 javaScriptEnabled = jsEnabled
+                                javaScriptCanOpenWindowsAutomatically = true
                                 domStorageEnabled = domStorage
+                                databaseEnabled = true
                                 allowFileAccess = true
                                 allowContentAccess = true
                                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -800,8 +975,9 @@ fun EmbeddedDevBrowser(
                                 setSupportZoom(true)
                                 builtInZoomControls = true
                                 displayZoomControls = false
+                                textZoom = pageZoom
                                 if (defaultDesktopMode) isDesktopMode = true
-                                userAgentString = if (isDesktopMode) desktopUserAgent else null
+                                userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
                             }
 
                             WebView.setWebContentsDebuggingEnabled(true)
@@ -841,6 +1017,9 @@ fun EmbeddedDevBrowser(
                                     }
                                     onLoadingChanged?.invoke(false)
                                     evaluateInspection(inspectMode)
+                                    if (pageZoom != 100) {
+                                        applyPageZoom(view, pageZoom)
+                                    }
 
                                     if (url != null && url != "about:blank") {
                                         val displayTitle = if (!title.isNullOrEmpty()) title else url
@@ -851,10 +1030,6 @@ fun EmbeddedDevBrowser(
                                             }
                                             saveBrowserHistory(context, historyList)
                                         }
-                                    }
-
-                                    if (erudaEnabled) {
-                                        view?.evaluateJavascript(ERUDA_INJECT_JS, null)
                                     }
                                 }
 
@@ -1235,7 +1410,7 @@ fun EmbeddedDevBrowser(
                             defaultDesktopMode = it
                             isDesktopMode = it
                             browserPrefs.edit().putBoolean(PREF_KEY_DESKTOP_DEFAULT, it).apply()
-                            webViewRef?.settings?.userAgentString = if (it) desktopUserAgent else null
+                            webViewRef?.settings?.userAgentString = if (it) desktopUserAgent else mobileUserAgent
                             webViewRef?.reload()
                         }
                     )
@@ -1369,131 +1544,6 @@ fun EmbeddedDevBrowser(
                         Text("Clear History", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        }
-    }
-
-    // Extensions & Add-ons Sheet
-    if (showExtensionsSheet) {
-        var customScript by remember { mutableStateOf("") }
-        ModalBottomSheet(
-            onDismissRequest = { showExtensionsSheet = false }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Text(
-                    "Extensions & Add-ons",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Eruda Mobile DevTools",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    "Complete mobile console, DOM inspector, network panel & local storage viewer.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Switch(
-                                checked = erudaEnabled,
-                                onCheckedChange = { enabled ->
-                                    erudaEnabled = enabled
-                                    browserPrefs.edit().putBoolean(PREF_KEY_ERUDA, enabled).apply()
-                                    if (enabled) {
-                                        webViewRef?.evaluateJavascript(ERUDA_INJECT_JS, null)
-                                        Toast.makeText(context, "Eruda DevTools injected! Look for the floating icon.", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        webViewRef?.reload()
-                                        Toast.makeText(context, "Eruda disabled (reloaded page)", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            )
-                        }
-
-                        if (erudaEnabled) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = {
-                                    webViewRef?.evaluateJavascript(ERUDA_INJECT_JS, null)
-                                    Toast.makeText(context, "Re-injected Eruda", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Re-inject Eruda on Current Page")
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    "Custom Userscript (JavaScript)",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = customScript,
-                    onValueChange = { customScript = it },
-                    modifier = Modifier.fillMaxWidth().height(120.dp),
-                    placeholder = { Text("console.log('Hello from custom script');") },
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        if (customScript.isNotBlank()) {
-                            webViewRef?.evaluateJavascript(customScript) { res ->
-                                Toast.makeText(context, "Executed: $res", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Execute Script on Active Page")
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    "Note: Android WebView does not run desktop Chromium (.crx) extensions natively. Eruda and userscripts provide lightweight inspection and scripting tailored for mobile web development.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
 
                 Spacer(modifier = Modifier.height(24.dp))
             }

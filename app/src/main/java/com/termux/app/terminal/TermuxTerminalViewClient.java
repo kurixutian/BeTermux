@@ -242,6 +242,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         if (keyCode == KeyEvent.KEYCODE_ENTER) {
             mCurrentCommand.setLength(0);
             mActivity.checkForAutocorrect(null);
+            TermuxActivity.markSessionActive(currentSession);
         } else if (keyCode == KeyEvent.KEYCODE_DEL) {
             if (mExpansionBuffer.length() > 0)
                 mExpansionBuffer.deleteCharAt(mExpansionBuffer.length() - 1);
@@ -1178,6 +1179,8 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         TerminalSession session = mActivity.getCurrentSession();
         if (session == null) return;
         if (!session.isRunning()) return;
+
+        if (mActivity.pasteClipboardImageIfPresent()) return;
 
         String text = ShareUtils.getTextStringFromClipboardIfSet(mActivity, true);
         if (text != null)

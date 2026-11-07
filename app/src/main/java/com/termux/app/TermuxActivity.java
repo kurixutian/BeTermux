@@ -273,12 +273,37 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private final java.util.List<FileTab> mOpenFileTabs = new java.util.ArrayList<>();
     private int mActiveFileTabIndex = -1;
 
+    // Live localhost ports
+    private java.util.List<Integer> mLivePorts = java.util.Collections.emptyList();
+    private volatile boolean mPortScanInFlight = false;
+
+    private static class SessionActivityState {
+        long lastActiveTimeMs = 0L;
+        long lastCpuTicks = -1L;
+    }
+
+    private static final java.util.Map<TerminalSession, SessionActivityState> sSessionActivityMap =
+        java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    public static void markSessionActive(TerminalSession session) {
+        if (session == null) return;
+        synchronized (sSessionActivityMap) {
+            SessionActivityState state = sSessionActivityMap.get(session);
+            if (state == null) {
+                state = new SessionActivityState();
+                sSessionActivityMap.put(session, state);
+            }
+            state.lastActiveTimeMs = System.currentTimeMillis();
+        }
+    }
+
     private final android.os.Handler mTabStatusHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable mTabStatusCheckRunnable = new Runnable() {
         @Override
         public void run() {
             if (!mIsInvalidState && isVisible()) {
                 refreshTabStatusDots();
+                pollLiveLocalhostPorts();
                 mTabStatusHandler.postDelayed(this, 1500);
             }
         }
@@ -294,9 +319,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         int currentStatus = -1;
     }
 
-    // SAF launchers for Export Screen and Make Script
+    // SAF launchers for Export Screen, Make Script, and Image Upload
     private ActivityResultLauncher<String> mScreenExportSaver;
     private ActivityResultLauncher<String> mScriptSaver;
+    private ActivityResultLauncher<String> mImageUploadLauncher;
     private final List<String> mPendingScriptLines = new ArrayList<>();
 
     private static final int CONTEXT_MENU_SELECT_URL_ID = 0;
@@ -403,6 +429,13 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                         runOnUiThread(() -> Toast.makeText(this, "Save failed: " + e.getMessage(), Toast.LENGTH_LONG).show());
                     }
                 }).start();
+            });
+
+        mImageUploadLauncher = registerForActivityResult(
+            new ActivityResultContracts.GetContent(),
+            uri -> {
+                if (uri == null) return;
+                saveAndInsertImageUriToCli(uri, "upload");
             });
 
         setupDrawerCommandButtons();
@@ -1048,15 +1081,17 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (btnNewSession != null) {
             btnNewSession.setOnClickListener(v -> {
                 com.newtermux.features.NtPopupMenu.showAsDropDown(this, v, null,
-                    new String[]{"New Terminal Tab", "New Dev Browser Tab", "Files"}, optIdx -> {
+                    new String[]{"New Terminal Tab", "New Dev Browser Tab", "Files", "Upload / Paste Image"}, optIdx -> {
                         if (optIdx == 0) {
                             if (mTermuxTerminalSessionActivityClient != null) {
                                 mTermuxTerminalSessionActivityClient.addNewSession(false, null);
                             }
                         } else if (optIdx == 1) {
-                            openBrowserTab("http://127.0.0.1:3000");
+                            openBrowserTab("https://www.google.com");
                         } else if (optIdx == 2) {
                             startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class));
+                        } else if (optIdx == 3) {
+                            promptOrUploadImageToCli(v);
                         }
                     });
             });
@@ -1127,14 +1162,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         int color;
         switch (status) {
             case TAB_STATUS_PROCESSING:
-                color = 0xFFE3B341; // Yellow (processing)
+                color = 0xFFE3B341; // Yellow (in progress / processing)
                 break;
             case TAB_STATUS_FINISHED:
-                color = 0xFF3FB950; // Green (finished)
-                break;
             case TAB_STATUS_STANDBY:
             default:
-                color = 0xFFE6EDF3; // White (standby)
+                color = 0xFF3FB950; // Green (finished / standby)
                 break;
         }
         dot.setColor(color);
@@ -1147,12 +1180,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
     }
 
-    public static int getTerminalSessionStatus(TerminalSession session) {
-        if (session == null) return TAB_STATUS_STANDBY;
-        if (!session.isRunning() || session.getPid() <= 0) {
-            return TAB_STATUS_FINISHED;
-        }
-        int pid = session.getPid();
+    private static String[] readProcStatTokens(int pid) {
         java.io.BufferedReader reader = null;
         try {
             reader = new java.io.BufferedReader(new java.io.FileReader("/proc/" + pid + "/stat"), 256);
@@ -1161,16 +1189,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 int closeParen = line.lastIndexOf(')');
                 if (closeParen != -1 && closeParen + 2 < line.length()) {
                     String rest = line.substring(closeParen + 2).trim();
-                    String[] tokens = rest.split("\\s+");
-                    if (tokens.length > 5) {
-                        int pgrp = Integer.parseInt(tokens[2]);
-                        int tpgid = Integer.parseInt(tokens[5]);
-                        if (tpgid > 0 && tpgid != pgrp) {
-                            return TAB_STATUS_PROCESSING;
-                        } else {
-                            return TAB_STATUS_STANDBY;
-                        }
-                    }
+                    return rest.split("\\s+");
                 }
             }
         } catch (Exception ignored) {
@@ -1179,7 +1198,78 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 try { reader.close(); } catch (Exception ignored) {}
             }
         }
+        return null;
+    }
+
+    public static int getTerminalSessionStatus(TerminalSession session) {
+        if (session == null) return TAB_STATUS_STANDBY;
+        if (!session.isRunning() || session.getPid() <= 0) {
+            return TAB_STATUS_FINISHED;
+        }
+        int pid = session.getPid();
+        String[] tokens = readProcStatTokens(pid);
+        if (tokens != null && tokens.length > 5) {
+            try {
+                int pgrp = Integer.parseInt(tokens[2]);
+                int tpgid = Integer.parseInt(tokens[5]);
+                if (tpgid <= 0 || tpgid == pgrp) {
+                    return TAB_STATUS_STANDBY;
+                }
+                // A foreground process group (e.g., an agent CLI or command) owns the terminal.
+                // Check whether it is actively working (recent terminal output, R/D state, or advancing CPU ticks)
+                // versus sitting idle in standby waiting for user input.
+                long now = System.currentTimeMillis();
+                SessionActivityState state;
+                synchronized (sSessionActivityMap) {
+                    state = sSessionActivityMap.get(session);
+                    if (state == null) {
+                        state = new SessionActivityState();
+                        state.lastActiveTimeMs = now;
+                        sSessionActivityMap.put(session, state);
+                    }
+                }
+                String[] fgTokens = (tpgid == pid) ? tokens : readProcStatTokens(tpgid);
+                if (fgTokens != null && fgTokens.length > 14) {
+                    String procState = fgTokens[0];
+                    long utime = Long.parseLong(fgTokens[11]);
+                    long stime = Long.parseLong(fgTokens[12]);
+                    long cutime = Long.parseLong(fgTokens[13]);
+                    long cstime = Long.parseLong(fgTokens[14]);
+                    long totalTicks = utime + stime + cutime + cstime;
+                    if ("R".equals(procState) || "D".equals(procState)) {
+                        state.lastActiveTimeMs = now;
+                    } else if (state.lastCpuTicks >= 0 && totalTicks > state.lastCpuTicks) {
+                        state.lastActiveTimeMs = now;
+                    }
+                    state.lastCpuTicks = totalTicks;
+                }
+                if (now - state.lastActiveTimeMs < 3000L) {
+                    return TAB_STATUS_PROCESSING;
+                } else {
+                    return TAB_STATUS_FINISHED;
+                }
+            } catch (Exception ignored) {}
+        }
         return TAB_STATUS_STANDBY;
+    }
+
+    private void pollLiveLocalhostPorts() {
+        if (mPortScanInFlight) return;
+        mPortScanInFlight = true;
+        new Thread(() -> {
+            try {
+                final java.util.List<Integer> detected = com.termux.app.activities.LocalhostPortScanner.scanLivePorts();
+                runOnUiThread(() -> {
+                    mPortScanInFlight = false;
+                    if (!detected.equals(mLivePorts)) {
+                        mLivePorts = detected;
+                        updateSessionTabs();
+                    }
+                });
+            } catch (Exception ignored) {
+                mPortScanInFlight = false;
+            }
+        }).start();
     }
 
     public void refreshTabStatusDots() {
@@ -1216,6 +1306,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
         if (mBrowserContainer == null) return;
 
+        String targetUrl = (initialUrl != null && !initialUrl.trim().isEmpty())
+            ? initialUrl.trim()
+            : "https://www.google.com";
+
         mHasBrowserTab = true;
         mIsBrowserTabActive = true;
         mActiveFileTabIndex = -1;
@@ -1224,6 +1318,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         com.termux.app.activities.DevBrowserBridge.attachTo(
             mBrowserContainer,
             this,
+            targetUrl,
             title -> runOnUiThread(() -> {
                 mBrowserTabTitle = (title != null && !title.isEmpty()) ? title : "Dev Browser";
                 updateSessionTabs();
@@ -1287,7 +1382,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     public void switchToBrowserTab() {
         if (!mHasBrowserTab) {
-            openBrowserTab("http://127.0.0.1:3000");
+            openBrowserTab("https://www.google.com");
             return;
         }
         mIsBrowserTabActive = true;
@@ -1478,7 +1573,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             LinearLayout tab = new LinearLayout(this);
             tab.setOrientation(LinearLayout.HORIZONTAL);
             tab.setGravity(Gravity.CENTER_VERTICAL);
-            tab.setPadding((int) (8 * density), 0, (int) (4 * density), 0);
+            tab.setPadding((int) (8 * density), 0, (int) (8 * density), 0);
             LinearLayout.LayoutParams tabLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, tabHeightPx);
             tabLp.setMarginEnd(marginPx);
@@ -1495,7 +1590,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             }
             tab.setBackground(bg);
 
-            // Leftmost status dot (Yellow = processing, Green = finished, White = standby)
+            // Leftmost status dot (Yellow = processing, Green = finished / standby)
             int status = getTerminalSessionStatus(session);
             View dot = new View(this);
             int dotSize = (int) (7 * density);
@@ -1528,23 +1623,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             title.setMaxWidth((int) (130 * density));
             LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            titleLp.setMarginEnd((int) (4 * density));
             title.setLayoutParams(titleLp);
             tab.addView(title);
-
-            // Close 'x' button
-            ImageView closeBtn = new ImageView(this);
-            int closeSize = (int) (18 * density);
-            int closePad = (int) (3 * density);
-            LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(closeSize, closeSize);
-            closeBtn.setLayoutParams(closeLp);
-            closeBtn.setPadding(closePad, closePad, closePad, closePad);
-            closeBtn.setImageResource(R.drawable.ic_tab_close);
-            closeBtn.setColorFilter(0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
-            closeBtn.setOnClickListener(v -> {
-                confirmCloseTerminalSession(session);
-            });
-            tab.addView(closeBtn);
 
             TabViewHolder holder = new TabViewHolder();
             holder.type = TAB_TYPE_TERMINAL;
@@ -1571,7 +1651,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             LinearLayout bTab = new LinearLayout(this);
             bTab.setOrientation(LinearLayout.HORIZONTAL);
             bTab.setGravity(Gravity.CENTER_VERTICAL);
-            bTab.setPadding((int) (8 * density), 0, (int) (4 * density), 0);
+            bTab.setPadding((int) (8 * density), 0, (int) (8 * density), 0);
             LinearLayout.LayoutParams bTabLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, tabHeightPx);
             bTabLp.setMarginEnd(marginPx);
@@ -1588,7 +1668,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             }
             bTab.setBackground(bBg);
 
-            // Leftmost status dot (Yellow = loading, Green = loaded, White = idle)
+            // Leftmost status dot (Yellow = loading, Green = loaded / idle)
             View bDot = new View(this);
             int dotSize = (int) (7 * density);
             LinearLayout.LayoutParams bDotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
@@ -1618,21 +1698,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             bTitle.setMaxWidth((int) (130 * density));
             LinearLayout.LayoutParams bTitleLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            bTitleLp.setMarginEnd((int) (4 * density));
             bTitle.setLayoutParams(bTitleLp);
             bTab.addView(bTitle);
-
-            // Close 'x' button
-            ImageView bCloseBtn = new ImageView(this);
-            int closeSize = (int) (18 * density);
-            int closePad = (int) (3 * density);
-            LinearLayout.LayoutParams bCloseLp = new LinearLayout.LayoutParams(closeSize, closeSize);
-            bCloseBtn.setLayoutParams(bCloseLp);
-            bCloseBtn.setPadding(closePad, closePad, closePad, closePad);
-            bCloseBtn.setImageResource(R.drawable.ic_tab_close);
-            bCloseBtn.setColorFilter(0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
-            bCloseBtn.setOnClickListener(v -> closeBrowserTab());
-            bTab.addView(bCloseBtn);
 
             TabViewHolder holder = new TabViewHolder();
             holder.type = TAB_TYPE_BROWSER;
@@ -1661,7 +1728,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             LinearLayout fTab = new LinearLayout(this);
             fTab.setOrientation(LinearLayout.HORIZONTAL);
             fTab.setGravity(Gravity.CENTER_VERTICAL);
-            fTab.setPadding((int) (8 * density), 0, (int) (4 * density), 0);
+            fTab.setPadding((int) (8 * density), 0, (int) (8 * density), 0);
             LinearLayout.LayoutParams fTabLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, tabHeightPx);
             fTabLp.setMarginEnd(marginPx);
@@ -1678,7 +1745,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             }
             fTab.setBackground(fBg);
 
-            // Leftmost status dot (Standby = white, Finished/Saved = green)
+            // Leftmost status dot (Green = standby/saved)
             View fDot = new View(this);
             int dotSize = (int) (7 * density);
             LinearLayout.LayoutParams fDotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
@@ -1708,21 +1775,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             fTitle.setMaxWidth((int) (130 * density));
             LinearLayout.LayoutParams fTitleLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            fTitleLp.setMarginEnd((int) (4 * density));
             fTitle.setLayoutParams(fTitleLp);
             fTab.addView(fTitle);
-
-            // Close 'x' button
-            ImageView fCloseBtn = new ImageView(this);
-            int closeSize = (int) (18 * density);
-            int closePad = (int) (3 * density);
-            LinearLayout.LayoutParams fCloseLp = new LinearLayout.LayoutParams(closeSize, closeSize);
-            fCloseBtn.setLayoutParams(fCloseLp);
-            fCloseBtn.setPadding(closePad, closePad, closePad, closePad);
-            fCloseBtn.setImageResource(R.drawable.ic_tab_close);
-            fCloseBtn.setColorFilter(0xFF8B949E, android.graphics.PorterDuff.Mode.SRC_IN);
-            fCloseBtn.setOnClickListener(v -> closeFileTab(fileIdx));
-            fTab.addView(fCloseBtn);
 
             TabViewHolder holder = new TabViewHolder();
             holder.type = TAB_TYPE_FILE;
@@ -1743,7 +1797,61 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             if (isFileActive) activeTabView = fTab;
         }
 
-        // 3. Plus "+" button for new tab
+        // 4. Live Localhost Ports Pill (if any local server is running)
+        if (mLivePorts != null && !mLivePorts.isEmpty()) {
+            final java.util.List<Integer> portsSnapshot = new java.util.ArrayList<>(mLivePorts);
+            LinearLayout liveChip = new LinearLayout(this);
+            liveChip.setOrientation(LinearLayout.HORIZONTAL);
+            liveChip.setGravity(Gravity.CENTER_VERTICAL);
+            liveChip.setPadding((int) (8 * density), 0, (int) (8 * density), 0);
+            LinearLayout.LayoutParams liveLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, tabHeightPx);
+            liveLp.setMarginEnd(marginPx);
+            liveChip.setLayoutParams(liveLp);
+
+            android.graphics.drawable.GradientDrawable liveBg = new android.graphics.drawable.GradientDrawable();
+            liveBg.setCornerRadius(6 * density);
+            liveBg.setColor(0xFF14261C);
+            liveBg.setStroke((int) (1 * density), 0xFF3FB950);
+            liveChip.setBackground(liveBg);
+
+            View liveDot = new View(this);
+            int dotSize = (int) (7 * density);
+            LinearLayout.LayoutParams liveDotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
+            liveDotLp.setMarginEnd((int) (5 * density));
+            liveDot.setLayoutParams(liveDotLp);
+            liveDot.setBackground(createDotDrawable(TAB_STATUS_FINISHED));
+            liveChip.addView(liveDot);
+
+            TextView liveLabel = new TextView(this);
+            String labelText = portsSnapshot.size() == 1
+                ? ":" + portsSnapshot.get(0)
+                : ":" + portsSnapshot.get(0) + " (+" + (portsSnapshot.size() - 1) + ")";
+            liveLabel.setText(labelText);
+            liveLabel.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            liveLabel.setTextSize(11.5f);
+            liveLabel.setTextColor(0xFF3FB950);
+            liveChip.addView(liveLabel);
+
+            liveChip.setOnClickListener(v -> {
+                if (portsSnapshot.size() == 1) {
+                    openBrowserTab("http://localhost:" + portsSnapshot.get(0));
+                } else {
+                    String[] items = new String[portsSnapshot.size()];
+                    for (int idx = 0; idx < portsSnapshot.size(); idx++) {
+                        items[idx] = "http://localhost:" + portsSnapshot.get(idx);
+                    }
+                    com.newtermux.features.NtPopupMenu.showAsDropDown(this, v, "Live Localhost", items, sel -> {
+                        if (sel >= 0 && sel < portsSnapshot.size()) {
+                            openBrowserTab("http://localhost:" + portsSnapshot.get(sel));
+                        }
+                    });
+                }
+            });
+            mSessionPipContainer.addView(liveChip);
+        }
+
+        // 5. Plus "+" button for new tab
         TextView addTab = new TextView(this);
         addTab.setText("+");
         addTab.setTextSize(16f);
@@ -1758,15 +1866,17 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         addTab.setBackground(addBg);
         addTab.setOnClickListener(v -> {
             com.newtermux.features.NtPopupMenu.showAsDropDown(this, v, null,
-                new String[]{"New Terminal Tab", "New Dev Browser Tab", "Files"}, optIdx -> {
+                new String[]{"New Terminal Tab", "New Dev Browser Tab", "Files", "Upload / Paste Image"}, optIdx -> {
                     if (optIdx == 0) {
                         if (mTermuxTerminalSessionActivityClient != null) {
                             mTermuxTerminalSessionActivityClient.addNewSession(false, null);
                         }
                     } else if (optIdx == 1) {
-                        openBrowserTab("http://127.0.0.1:3000");
+                        openBrowserTab("https://www.google.com");
                     } else if (optIdx == 2) {
                         startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class));
+                    } else if (optIdx == 3) {
+                        promptOrUploadImageToCli(v);
                     }
                 });
         });
@@ -2055,6 +2165,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void showToolbarMoreMenu(View anchor) {
         String[] items = new String[]{
+            "Upload / Paste Image",
             "Clear Terminal",
             "Package Manager",
             "Speech to Text",
@@ -2064,24 +2175,28 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         };
         com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null, items, idx -> {
             switch (idx) {
-                case 0: { // Clear Terminal
+                case 0: { // Upload / Paste Image
+                    promptOrUploadImageToCli(anchor);
+                    break;
+                }
+                case 1: { // Clear Terminal
                     TerminalSession session = getCurrentSession();
                     if (session != null) {
                         session.write("clear\n");
                     }
                     break;
                 }
-                case 1: { // Package Manager
+                case 2: { // Package Manager
                     if (mPackageManagerMenu != null) {
                         mPackageManagerMenu.show(anchor);
                     }
                     break;
                 }
-                case 2: { // Speech to Text
+                case 3: { // Speech to Text
                     onSTTButtonClicked();
                     break;
                 }
-                case 3: { // Toggle Autocorrect
+                case 4: { // Toggle Autocorrect
                     if (mTerminalView != null) {
                         boolean nowEnabled = !mTerminalView.isKeyboardSuggestionsEnabled();
                         mTerminalView.setKeyboardSuggestionsEnabled(nowEnabled);
@@ -2097,16 +2212,105 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                     }
                     break;
                 }
-                case 4: { // Tips & Shortcuts
+                case 5: { // Tips & Shortcuts
                     showTipsAndShortcutsDialog();
                     break;
                 }
-                case 5: { // Settings
+                case 6: { // Settings
                     openSettings();
                     break;
                 }
             }
         });
+    }
+
+    public Uri getClipboardImageUri() {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null || !cm.hasPrimaryClip()) return null;
+            android.content.ClipData clip = cm.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) return null;
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null) {
+                    String mime = getContentResolver().getType(uri);
+                    if (mime != null && mime.startsWith("image/")) {
+                        return uri;
+                    }
+                    if (clip.getDescription() != null && clip.getDescription().hasMimeType("image/*")) {
+                        return uri;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    public boolean pasteClipboardImageIfPresent() {
+        Uri imgUri = getClipboardImageUri();
+        if (imgUri == null) return false;
+        saveAndInsertImageUriToCli(imgUri, "clipboard");
+        return true;
+    }
+
+    public void promptOrUploadImageToCli(View anchor) {
+        Uri clipUri = getClipboardImageUri();
+        if (clipUri != null && anchor != null) {
+            com.newtermux.features.NtPopupMenu.showAsDropDown(
+                this,
+                anchor,
+                "Insert Image to CLI",
+                new String[]{"Paste Image from Clipboard", "Pick Image from Phone"},
+                idx -> {
+                    if (idx == 0) {
+                        saveAndInsertImageUriToCli(clipUri, "clipboard");
+                    } else if (idx == 1 && mImageUploadLauncher != null) {
+                        mImageUploadLauncher.launch("image/*");
+                    }
+                }
+            );
+        } else if (mImageUploadLauncher != null) {
+            mImageUploadLauncher.launch("image/*");
+        }
+    }
+
+    private void saveAndInsertImageUriToCli(Uri uri, String prefix) {
+        new Thread(() -> {
+            try {
+                String mime = getContentResolver().getType(uri);
+                String ext = "png";
+                if (mime != null) {
+                    if (mime.contains("jpeg") || mime.contains("jpg")) ext = "jpg";
+                    else if (mime.contains("webp")) ext = "webp";
+                    else if (mime.contains("gif")) ext = "gif";
+                }
+                File dir = new File(TermuxConstants.TERMUX_HOME_DIR_PATH, ".cache/clipboard");
+                if (!dir.exists()) dir.mkdirs();
+                File outFile = new File(dir, prefix + "_" + System.currentTimeMillis() + "." + ext);
+                try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(outFile)) {
+                    if (in == null) throw new java.io.IOException("Cannot open image stream");
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                }
+                final String insertedPath = outFile.getAbsolutePath() + " ";
+                runOnUiThread(() -> {
+                    TerminalSession session = getCurrentSession();
+                    if (mIsBrowserTabActive || mActiveFileTabIndex >= 0) {
+                        switchToTerminalTab(session);
+                    }
+                    if (session != null && session.getEmulator() != null) {
+                        session.getEmulator().paste(insertedPath);
+                        showToast("Inserted image: " + outFile.getName(), false);
+                    }
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Image paste failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        }).start();
     }
 
     private void showTipsAndShortcutsDialog() {
@@ -2123,11 +2327,13 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             + "<p><b>🌐 Clickable Links &amp; Paths</b><br/>"
             + "Tap any URL or file path directly in the terminal to view it in the Dev Browser or File Viewer. Multi-line wrapped links are supported.</p>"
             + "<p><b>🚀 Dev Browser &amp; DevTools</b><br/>"
-            + "Local web servers (ports 3000, 5173, 8080, etc.) appear as quick tabs. Tap the <b>⋮</b> browser menu to inspect elements with Eruda DevTools, view history, or toggle JavaScript.</p>"
+            + "Live localhost servers appear automatically in the top bar and browser port bar. Tap the <b>⋮</b> browser menu to zoom in/out, view history, or configure settings.</p>"
+            + "<p><b>🖼️ Paste / Upload Images to CLI</b><br/>"
+            + "Copy any screenshot to your clipboard and paste directly into the terminal, or use <b>Upload / Paste Image</b> in the <b>+</b> or <b>⋮</b> menu.</p>"
             + "<p><b>📁 File Manager &amp; Search</b><br/>"
-            + "Tap <b>Files</b> in the toolbar. Use the real-time search bar to filter files instantly. Preview images, PDFs, Markdown, and code directly in tabs.</p>"
+            + "Tap <b>Files</b> in the toolbar. Toggle hidden files with the eye icon, or use the search bar to filter files instantly.</p>"
             + "<p><b>🛡️ Tab Safety &amp; Management</b><br/>"
-            + "Tap <b>+</b> to create terminal or browser tabs. Long-press a tab to rename or close. Active running processes require confirmation before closing.</p>"
+            + "Tap <b>+</b> to create terminal or browser tabs. Long-press any tab to rename or close it.</p>"
             + "<p><b>⌨️ Extra Keys &amp; Menu</b><br/>"
             + "Toggle the keyboard shortcuts bar anytime. Tap <b>⋮ More</b> for Clear Terminal, Package Manager, Voice Input, and Settings.</p>"
             + "<hr/><p><small style='color:#8B949E;'>BeTermux v1.0.0 • Forked by Kurixutian • Based on Termux Open Source Project</small></p>";
@@ -2146,6 +2352,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
      * Updates in-place without rebuilding the whole row.
      */
     public void notifyPipUpdate(TerminalSession session) {
+        markSessionActive(session);
         DeckBridge.notifyPipUpdate(session);
         if (mSessionPipContainer == null) return;
         runOnUiThread(() -> {

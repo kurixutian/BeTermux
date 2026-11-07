@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -358,6 +359,22 @@ private fun FileBrowserScreen(
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Filled.Search, contentDescription = "Search files")
                         }
+                        IconButton(onClick = {
+                            val newVal = !showHidden
+                            showHidden = newVal
+                            prefs.edit().putBoolean(PREF_KEY_SHOW_HIDDEN, newVal).apply()
+                            Toast.makeText(
+                                context,
+                                if (newVal) "Showing hidden files" else "Hidden files hidden",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }) {
+                            Icon(
+                                if (showHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                contentDescription = if (showHidden) "Hide hidden files" else "Show hidden files",
+                                tint = if (showHidden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         IconButton(onClick = { sortDialogOpen = true }) {
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort and Organize")
                         }
@@ -377,6 +394,16 @@ private fun FileBrowserScreen(
                             DropdownMenuItem(
                                 text = { Text("New Folder") },
                                 onClick = { overflowOpen = false; newFolderDialog = true }
+                            )
+                            MenuItemDivider()
+                            DropdownMenuItem(
+                                text = { Text(if (showHidden) "Hide Hidden Files" else "Show Hidden Files") },
+                                onClick = {
+                                    overflowOpen = false
+                                    val newVal = !showHidden
+                                    showHidden = newVal
+                                    prefs.edit().putBoolean(PREF_KEY_SHOW_HIDDEN, newVal).apply()
+                                }
                             )
                         }
                     }

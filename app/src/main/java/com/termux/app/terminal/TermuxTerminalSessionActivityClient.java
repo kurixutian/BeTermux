@@ -118,6 +118,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
     @Override
     public void onTextChanged(@NonNull TerminalSession changedSession) {
+        TermuxActivity.markSessionActive(changedSession);
         if (!mActivity.isVisible()) return;
 
         if (mActivity.getCurrentSession() == changedSession) mActivity.getTerminalView().onScreenUpdated();
@@ -193,6 +194,8 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     @Override
     public void onPasteTextFromClipboard(@Nullable TerminalSession session) {
         if (!mActivity.isVisible()) return;
+
+        if (mActivity.pasteClipboardImageIfPresent()) return;
 
         String text = ShareUtils.getTextStringFromClipboardIfSet(mActivity, true);
         if (text != null)
