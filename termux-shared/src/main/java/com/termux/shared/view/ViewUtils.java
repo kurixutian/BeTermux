@@ -112,7 +112,7 @@ public class ViewUtils {
                 ", displayOrientation=" + displayOrientation);
         }
 
-        if (isInMultiWindowMode) {
+        if (isInMultiWindowMode && !isFloatingMultiWindow(context)) {
             if (displayOrientation == Configuration.ORIENTATION_PORTRAIT) {
                 // The windowRect.top of the window at the of split screen mode should start right
                 // below the status bar
@@ -203,6 +203,31 @@ public class ViewUtils {
     public static String toPointString(Point point) {
         if (point == null) return "null";
         return "(" + point.x + "," + point.y + ")";
+    }
+
+    /**
+     * Check whether {@code context} is currently hosted inside a freeform/floating multi-window
+     * rather than fullscreen or docked split-screen.
+     */
+    public static boolean isFloatingMultiWindow(@Nullable Context context) {
+        Activity activity = getActivity(context);
+        if (activity == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !activity.isInMultiWindowMode()) {
+            return false;
+        }
+        try {
+            androidx.window.layout.WindowMetrics currentMetrics =
+                androidx.window.layout.WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(activity);
+            androidx.window.layout.WindowMetrics maxMetrics =
+                androidx.window.layout.WindowMetricsCalculator.getOrCreate().computeMaximumWindowMetrics(activity);
+            Rect cur = currentMetrics.getBounds();
+            Rect max = maxMetrics.getBounds();
+            int slop = Math.max(4, (int) dpToPx(activity, 8));
+            boolean smallerWidth = cur.width() < (max.width() - slop);
+            boolean smallerHeight = cur.height() < (max.height() - slop);
+            return smallerWidth && smallerHeight;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /** Get the {@link Activity} associated with the {@link Context} if available. */

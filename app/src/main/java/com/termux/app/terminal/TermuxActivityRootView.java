@@ -101,9 +101,29 @@ public class TermuxActivityRootView extends LinearLayout implements ViewTreeObse
         ROOT_VIEW_LOGGING_ENABLED = value;
     }
 
+    /** Reset any cached keyboard margin overrides (e.g. on multi-window / floating resize transitions). */
+    public void resetMarginState() {
+        marginBottom = null;
+        lastMarginBottom = null;
+        ViewGroup.LayoutParams lp = getLayoutParams();
+        if (lp instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) lp;
+            if (params.bottomMargin != 0) {
+                params.setMargins(0, 0, 0, 0);
+                setLayoutParams(params);
+            }
+        }
+    }
+
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+
+        if (mActivity != null && ViewUtils.isFloatingMultiWindow(mActivity)) {
+            marginBottom = null;
+            lastMarginBottom = null;
+            return;
+        }
 
         if (marginBottom != null) {
             if (ROOT_VIEW_LOGGING_ENABLED)
@@ -129,6 +149,19 @@ public class TermuxActivityRootView extends LinearLayout implements ViewTreeObse
             Logger.logVerbose(LOG_TAG, ":\nonGlobalLayout:");
 
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) getLayoutParams();
+
+        // In freeform/floating windows, windowRect display offsets vs window-local coordinates cause
+        // legacy split-screen bottomMargin compensation to oscillate endlessly and break input.
+        // Let the window manager handle floating window IME placement cleanly with zero extra bottom margin.
+        if (ViewUtils.isFloatingMultiWindow(mActivity)) {
+            marginBottom = null;
+            lastMarginBottom = null;
+            if (params.bottomMargin != 0) {
+                params.setMargins(0, 0, 0, 0);
+                setLayoutParams(params);
+            }
+            return;
+        }
 
         // Get the position Rects of the bottom space view and the main window holding it
         Rect[] windowAndViewRects = ViewUtils.getWindowAndViewRects(bottomSpaceView, mStatusBarHeight);

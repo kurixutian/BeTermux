@@ -45,6 +45,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.features.NewTermuxSettings
+import com.newtermux.glass.GlassBackground
+import com.newtermux.glass.GlassCard
+import com.newtermux.glass.GlassPageBackdropProvider
+import com.newtermux.glass.GlassTabBar
+import com.newtermux.glass.GlassTabItem
+import com.newtermux.glass.GlassTopBar
+import com.newtermux.glass.glassPageSource
 import com.termux.app.TermuxActivity
 import com.termux.shared.termux.TermuxConstants
 import kotlinx.coroutines.Dispatchers
@@ -119,90 +126,109 @@ private fun PackageManagerScreen(
         if (q.isEmpty()) source else source.filter { it.name.lowercase(Locale.ROOT).contains(q) }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Package Manager") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == TAB_INSTALLED, onClick = { tab = TAB_INSTALLED; query = "" },
-                    text = { Text("Installed (${if (installedLoaded) installed.size else "…"})") })
-                Tab(selected = tab == TAB_AVAILABLE, onClick = { tab = TAB_AVAILABLE; query = "" },
-                    text = { Text("Available (${if (availableLoaded) available.size else "…"})") })
-            }
-
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text("Search packages") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-
-            val status = when {
-                !loaded -> "Loading…"
-                filtered.isEmpty() -> if (q.isEmpty()) "No packages found." else "No results for \"$q\"."
-                else -> "${filtered.size} package${if (filtered.size == 1) "" else "s"}"
-            }
-            Text(
-                status,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            if (filtered.isEmpty() && loaded) {
+    GlassPageBackdropProvider {
+        GlassBackground {
+            androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .glassPageSource()
+                        .padding(top = 84.dp),
                 ) {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(56.dp),
+                    GlassTabBar(
+                        selectedIndex = tab,
+                        onTabSelected = { tab = it; query = "" },
+                        tabs = listOf(
+                            GlassTabItem("Installed (${if (installedLoaded) installed.size else "…"})"),
+                            GlassTabItem("Available (${if (availableLoaded) available.size else "…"})"),
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text("Search packages") },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+
+                    val status = when {
+                        !loaded -> "Loading…"
+                        filtered.isEmpty() -> if (q.isEmpty()) "No packages found." else "No results for \"$q\"."
+                        else -> "${filtered.size} package${if (filtered.size == 1) "" else "s"}"
+                    }
                     Text(
-                        if (q.isEmpty()) "No packages found" else "No results for \"$q\"",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        status,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (q.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "Check spelling or try searching for another package name",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
+
+                    if (filtered.isEmpty() && loaded) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(32.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(56.dp),
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                if (q.isEmpty()) "No packages found" else "No results for \"$q\"",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (q.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    "Check spelling or try searching for another package name",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 12.dp,
+                                end = 12.dp,
+                                top = 4.dp,
+                                bottom = 24.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            items(filtered, key = { it.name }) { entry ->
+                                GlassCard(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = { detail = entry },
+                                ) {
+                                    PackageRow(
+                                        entry = entry,
+                                        subtitle = if (tab == TAB_INSTALLED) {
+                                            if (entry.version != null) "v${entry.version}" else "installed"
+                                        } else {
+                                            if (entry.name in installedNames) "Installed · Termux repo" else "Termux repo"
+                                        },
+                                        onClick = { detail = entry },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(filtered, key = { it.name }) { entry ->
-                        PackageRow(
-                            entry = entry,
-                            subtitle = if (tab == TAB_INSTALLED) {
-                                if (entry.version != null) "v${entry.version}" else "installed"
-                            } else {
-                                if (entry.name in installedNames) "Installed · Termux repo" else "Termux repo"
-                            },
-                            onClick = { detail = entry },
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    }
-                }
+                GlassTopBar(
+                    title = "Package Manager",
+                    onBack = onBack,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
     }

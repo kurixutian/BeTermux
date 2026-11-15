@@ -6,6 +6,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -57,6 +58,11 @@ import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.features.NewTermuxSettings
 import com.newtermux.features.SshProfile
 import com.newtermux.features.SshProfileStore
+import com.newtermux.glass.GlassBackground
+import com.newtermux.glass.GlassCard
+import com.newtermux.glass.GlassPageBackdropProvider
+import com.newtermux.glass.GlassTopBar
+import com.newtermux.glass.glassPageSource
 
 /**
  * SSH connection / port-forward profile manager.
@@ -98,63 +104,66 @@ private fun SshManagerScreen(
 
     fun persist() = SshProfileStore.save(profiles.toMutableList())
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("SSH Manager") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+    GlassPageBackdropProvider {
+        GlassBackground {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (profiles.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().glassPageSource().padding(32.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Filled.Computer,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(56.dp),
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "No SSH profiles yet",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Tap the + button in the top right to save connection hosts and port-forwarding profiles",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
                     }
-                },
-                actions = {
-                    IconButton(onClick = { editorProfile = null; showEditor = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add profile")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().glassPageSource(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = 88.dp,
+                            bottom = 24.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(profiles, key = { it.id }) { profile ->
+                            ProfileCard(
+                                profile = profile,
+                                onClick = { connectTarget = profile },
+                                onEdit = { editorProfile = profile; showEditor = true },
+                                onDelete = { deleteTarget = profile },
+                            )
+                        }
                     }
-                },
-            )
-        },
-    ) { padding ->
-        if (profiles.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    Icons.Filled.Computer,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(56.dp),
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    "No SSH profiles yet",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    "Tap the + button in the top right to save connection hosts and port-forwarding profiles",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(profiles, key = { it.id }) { profile ->
-                    ProfileCard(
-                        profile = profile,
-                        onClick = { connectTarget = profile },
-                        onEdit = { editorProfile = profile; showEditor = true },
-                        onDelete = { deleteTarget = profile },
-                    )
                 }
+                GlassTopBar(
+                    title = "SSH Manager",
+                    onBack = onBack,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    actions = {
+                        IconButton(onClick = { editorProfile = null; showEditor = true }) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add profile")
+                        }
+                    },
+                )
             }
         }
     }
@@ -217,15 +226,9 @@ private fun ProfileCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
     ) {
         Row(
             modifier = Modifier

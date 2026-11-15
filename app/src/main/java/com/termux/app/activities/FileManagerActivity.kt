@@ -80,6 +80,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.newtermux.glass.GlassBackground
+import com.newtermux.glass.GlassPageBackdropProvider
+import com.newtermux.glass.GlassTokens
+import com.newtermux.glass.glassPageSource
+import com.newtermux.glass.glassSurface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -287,10 +294,25 @@ private fun FileBrowserScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
+    GlassPageBackdropProvider {
+        GlassBackground {
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .glassSurface(
+                                shape = RoundedCornerShape(20.dp),
+                                elevation = 4.dp,
+                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
+                            )
+                    ) {
+                        TopAppBar(
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                            title = {
                     if (isSearchActive) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -409,9 +431,10 @@ private fun FileBrowserScreen(
                     }
                 },
             )
+            }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).glassPageSource()) {
             // Storage quick shortcuts row
             Row(
                 modifier = Modifier
@@ -594,6 +617,8 @@ private fun FileBrowserScreen(
                 }
             }
         }
+    }
+    }
     }
 
     // --- File options dialog on long click ---
@@ -901,10 +926,25 @@ private fun MarkdownViewer(
 
     BackHandler { tryExit() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
+    GlassPageBackdropProvider {
+        GlassBackground {
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .glassSurface(
+                                shape = RoundedCornerShape(20.dp),
+                                elevation = 4.dp,
+                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
+                            )
+                    ) {
+                        TopAppBar(
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                            title = {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -971,6 +1011,7 @@ private fun MarkdownViewer(
                     }
                 }
             )
+            }
         }
     ) { padding ->
         Box(
@@ -1025,6 +1066,8 @@ private fun MarkdownViewer(
                 )
             }
         }
+    }
+    }
     }
 
     if (confirmExitDialog) {
@@ -1196,10 +1239,25 @@ private fun ImageViewer(file: File, onClose: () -> Unit) {
 
     BackHandler { onClose() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
+    GlassPageBackdropProvider {
+        GlassBackground {
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .glassSurface(
+                                shape = RoundedCornerShape(20.dp),
+                                elevation = 4.dp,
+                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
+                            )
+                    ) {
+                        TopAppBar(
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                            title = {
                     Column {
                         Text(file.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(formatSize(file.length()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1216,6 +1274,7 @@ private fun ImageViewer(file: File, onClose: () -> Unit) {
                     }
                 }
             )
+            }
         }
     ) { padding ->
         Box(
@@ -1237,6 +1296,8 @@ private fun ImageViewer(file: File, onClose: () -> Unit) {
                 Text("Unable to render image preview", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+    }
     }
 }
 
@@ -1265,10 +1326,25 @@ private fun TextEditorView(
 
     BackHandler { tryExit() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
+    GlassPageBackdropProvider {
+        GlassBackground {
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .glassSurface(
+                                shape = RoundedCornerShape(20.dp),
+                                elevation = 4.dp,
+                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
+                            )
+                    ) {
+                        TopAppBar(
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                            title = {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -1345,6 +1421,7 @@ private fun TextEditorView(
                     }
                 }
             )
+            }
         },
         bottomBar = {
             Surface(
@@ -1429,6 +1506,8 @@ private fun TextEditorView(
             }
         }
     }
+    }
+    }
 
     if (confirmExitDialog) {
         AlertDialog(
@@ -1464,16 +1543,32 @@ private fun BinaryFileInfoView(
 
     BackHandler { onClose() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+    GlassPageBackdropProvider {
+        GlassBackground {
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .glassSurface(
+                                shape = RoundedCornerShape(20.dp),
+                                elevation = 4.dp,
+                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
+                            )
+                    ) {
+                        TopAppBar(
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                            title = { Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
+            }
         }
     ) { padding ->
         Column(
@@ -1508,6 +1603,8 @@ private fun BinaryFileInfoView(
                 }
             }
         }
+    }
+    }
     }
 }
 

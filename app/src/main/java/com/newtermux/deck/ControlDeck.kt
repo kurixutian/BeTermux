@@ -68,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.newtermux.compose.NewTermuxComposeTheme
+import com.newtermux.glass.GlassTokens
+import com.newtermux.glass.glassSurface
 import com.termux.R
 import com.termux.app.TermuxActivity
 import com.termux.app.terminal.MiniTerminalPipView
@@ -104,7 +106,7 @@ class ControlDeckPresentation(private val owner: TermuxActivity, display: Displa
     }
 }
 
-private val DeckBg = Color(0xFF101214)
+private val DeckBg = GlassTokens.BACKGROUND
 private val TileBg = Color(0xFF181B1F)
 private val TileBorder = Color(0xFF383E48)
 
@@ -214,19 +216,17 @@ private fun Header(act: TermuxActivity?) {
         )
         Spacer(Modifier.weight(1f))
         if (act != null) {
-            if (act.isToolbarButtonShown(R.id.btn_autocorrect_toggle)) {
-                HeaderAction({ act.performToolbarAction(R.id.btn_autocorrect_toggle) }) {
-                    Text("AC", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
+            HeaderAction({ act.toggleAutocorrectFromUi() }) {
+                Text("AC", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
-            if (act.isToolbarButtonShown(R.id.btn_stt)) HeaderIcon(Icons.Filled.Mic, "Speech to text") { act.performToolbarAction(R.id.btn_stt) }
+            HeaderIcon(Icons.Filled.Mic, "Speech to text") { act.triggerSpeechToTextFromUi() }
             HeaderIcon(Icons.Filled.Folder, "File manager") {
                 act.startActivity(android.content.Intent(act, com.termux.app.activities.FileManagerActivity::class.java))
             }
             HeaderIcon(Icons.Filled.Language, "Dev browser") {
                 act.startActivity(android.content.Intent(act, com.termux.app.activities.DevBrowserActivity::class.java))
             }
-            HeaderIcon(Icons.Filled.Settings, "Settings") { act.performToolbarAction(R.id.btn_settings) }
+            HeaderIcon(Icons.Filled.Settings, "Settings") { act.openSettingsFromUi() }
             HeaderIcon(Icons.Filled.Add, "New session") { act.performToolbarAction(R.id.btn_new_session) }
         }
         HeaderIcon(Icons.Filled.Close, "Close control deck") { DeckBridge.hideByUser() }
@@ -238,10 +238,12 @@ private fun HeaderAction(onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
             .size(HeaderButton)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-            .combinedClickable(onClick = onClick),
+            .glassSurface(
+                shape = CircleShape,
+                elevation = 2.dp,
+                sampleBackdrop = false,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) { content() }
 }

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
+import android.os.Message
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
@@ -17,6 +18,8 @@ import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -27,9 +30,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,19 +61,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -77,6 +87,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -97,6 +108,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,19 +128,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.newtermux.compose.NewTermuxComposeTheme
+import com.newtermux.features.LocalhostServerManager
+import com.newtermux.glass.GlassBackground
+import com.newtermux.glass.GlassTokens
+import com.newtermux.glass.glassSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.TreeSet
 import java.util.function.BiConsumer
 import java.util.function.Consumer
 
@@ -144,55 +159,6 @@ private const val PREF_KEY_DESKTOP_DEFAULT = "desktop_default"
 private const val PREF_KEY_JS_ENABLED = "js_enabled"
 private const val PREF_KEY_DOM_STORAGE = "dom_storage"
 private const val PREF_KEY_PAGE_ZOOM = "page_zoom"
-
-object LocalhostPortScanner {
-    private val COMMON_DEV_PORTS = intArrayOf(
-        3000, 3001, 4000, 4173, 4200, 4321, 5000, 5173, 5174, 5500, 8000, 8080, 8081, 8787, 8888, 9000
-    )
-
-    @JvmStatic
-    fun scanLivePorts(): List<Int> {
-        val found = TreeSet<Int>()
-        parseProcNetTcp("/proc/net/tcp", found)
-        parseProcNetTcp("/proc/net/tcp6", found)
-        for (port in COMMON_DEV_PORTS) {
-            if (port in found) continue
-            try {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress("127.0.0.1", port), 15)
-                    found.add(port)
-                }
-            } catch (_: Exception) {}
-        }
-        return found.toList()
-    }
-
-    private fun parseProcNetTcp(path: String, out: MutableSet<Int>) {
-        try {
-            val file = File(path)
-            if (!file.canRead()) return
-            file.forEachLine { line ->
-                val parts = line.trim().split(Regex("\\s+"))
-                if (parts.size >= 4 && parts[3].equals("0A", ignoreCase = true)) {
-                    val localAddr = parts[1]
-                    val ipHex = localAddr.substringBefore(':').uppercase(Locale.ROOT)
-                    val portHex = localAddr.substringAfter(':', "")
-                    val isLocalOrAny = ipHex == "0100007F" ||
-                        ipHex == "00000000" ||
-                        ipHex == "00000000000000000000000001000000" ||
-                        ipHex == "00000000000000000000000000000000" ||
-                        ipHex == "0000000000000000FFFF00000100007F"
-                    if (isLocalOrAny && portHex.isNotEmpty()) {
-                        val port = portHex.toIntOrNull(16)
-                        if (port != null && port in 1024..65535) {
-                            out.add(port)
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-    }
-}
 
 private val historyDateFormat by lazy { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
 private fun formatHistoryDate(timestamp: Long): String = try {
@@ -296,9 +262,12 @@ object DevBrowserBridge {
         initialUrl: String,
         onTitleChanged: Consumer<String>,
         onLoadingChanged: Consumer<Boolean>,
+        onProgressChanged: Consumer<Int>? = null,
         onClose: Runnable,
         onBackStateChanged: BiConsumer<Boolean, Runnable>,
-        onReloadProvided: Consumer<Runnable>
+        onReloadProvided: Consumer<Runnable>,
+        onLoadUrlProvided: Consumer<Consumer<String>>? = null,
+        onOpenLocalhostTab: Runnable? = null,
     ) {
         composeView.setContent {
             NewTermuxComposeTheme(context) {
@@ -306,13 +275,18 @@ object DevBrowserBridge {
                     initialUrl = initialUrl.ifBlank { "https://www.google.com" },
                     onTitleChanged = { onTitleChanged.accept(it) },
                     onLoadingChanged = { onLoadingChanged.accept(it) },
+                    onProgressChanged = { onProgressChanged?.accept(it) },
                     onClose = { onClose.run() },
                     onBackStateChanged = { canBack, goBack ->
                         onBackStateChanged.accept(canBack, Runnable { goBack() })
                     },
                     onReloadProvided = { reloadFn ->
                         onReloadProvided.accept(Runnable { reloadFn() })
-                    }
+                    },
+                    onLoadUrlProvided = { loadFn ->
+                        onLoadUrlProvided?.accept(Consumer { url -> loadFn(url) })
+                    },
+                    onOpenLocalhostTab = onOpenLocalhostTab?.let { r -> { r.run() } },
                 )
             }
         }
@@ -386,34 +360,43 @@ private const val INSPECTOR_JS = """
 })();
 """
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun EmbeddedDevBrowser(
     initialUrl: String = "https://www.google.com",
     onTitleChanged: ((String) -> Unit)? = null,
     onLoadingChanged: ((Boolean) -> Unit)? = null,
+    onProgressChanged: ((Int) -> Unit)? = null,
     onClose: (() -> Unit)? = null,
     onBackStateChanged: ((Boolean, () -> Unit) -> Unit)? = null,
-    onReloadProvided: (((() -> Unit)) -> Unit)? = null
+    onReloadProvided: (((() -> Unit)) -> Unit)? = null,
+    onLoadUrlProvided: (((String) -> Unit) -> Unit)? = null,
+    onOpenLocalhostTab: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var urlText by remember { mutableStateOf(initialUrl) }
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
+    var isPageLoading by remember { mutableStateOf(false) }
+    var loadProgress by remember { mutableIntStateOf(0) }
     var isDesktopMode by remember { mutableStateOf(false) }
     val desktopUserAgent = remember {
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
     val mobileUserAgent = remember {
         try {
-            WebSettings.getDefaultUserAgent(context)
+            val raw = WebSettings.getDefaultUserAgent(context)
                 .replace("; wv", "")
                 .replace("Version/4.0 ", "")
+            // Google OAuth rejects WebView strings if Chrome/Mobile markers were stripped; ensure clean Chrome token
+            if (raw.contains("Chrome/")) raw else
+                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
         } catch (_: Exception) {
-            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
         }
     }
 
@@ -425,6 +408,15 @@ fun EmbeddedDevBrowser(
     val browserPrefs = remember { context.getSharedPreferences(PREFS_BROWSER, Context.MODE_PRIVATE) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+
+    // OAuth / window.open popup WebView overlay preserving window.opener & shared cookies
+    var oauthPopupWebView by remember { mutableStateOf<WebView?>(null) }
+    var oauthPopupUrl by remember { mutableStateOf("") }
+    var oauthPopupTitle by remember { mutableStateOf("Sign in") }
+    var oauthPopupProgress by remember { mutableIntStateOf(0) }
+
+    // Localhost server management (long-press any port chip to stop)
+    var serverToStop by remember { mutableStateOf<LocalhostServerManager.LocalhostServer?>(null) }
 
     var defaultDesktopMode by remember {
         mutableStateOf(browserPrefs.getBoolean(PREF_KEY_DESKTOP_DEFAULT, false))
@@ -439,16 +431,17 @@ fun EmbeddedDevBrowser(
         mutableIntStateOf(browserPrefs.getInt(PREF_KEY_PAGE_ZOOM, 100).coerceIn(50, 300))
     }
 
-    val livePorts = remember { mutableStateListOf<Int>() }
+    val liveServers = remember { mutableStateListOf<LocalhostServerManager.LocalhostServer>() }
+    suspend fun refreshLiveServers() {
+        val detected = withContext(Dispatchers.IO) { LocalhostServerManager.scanServers() }
+        if (detected != liveServers.toList()) {
+            liveServers.clear()
+            liveServers.addAll(detected)
+        }
+    }
     LaunchedEffect(Unit) {
         while (true) {
-            val detected = withContext(Dispatchers.IO) {
-                LocalhostPortScanner.scanLivePorts()
-            }
-            if (detected != livePorts.toList()) {
-                livePorts.clear()
-                livePorts.addAll(detected)
-            }
+            refreshLiveServers()
             delay(2000)
         }
     }
@@ -549,14 +542,120 @@ fun EmbeddedDevBrowser(
         evaluateInspection(inspectMode)
     }
 
+    fun openInExternalBrowser(url: String) {
+        try {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        } catch (e: Exception) {
+            Toast.makeText(context, "No external browser found", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun handleCustomSchemeOrIntent(targetUrl: String?, fallbackLoader: (String) -> Unit): Boolean {
+        if (targetUrl.isNullOrBlank()) return false
+        val lower = targetUrl.lowercase(Locale.ROOT)
+        if (lower.startsWith("http://") || lower.startsWith("https://") ||
+            lower.startsWith("about:") || lower.startsWith("data:") || lower.startsWith("blob:")
+        ) {
+            return false
+        }
+        if (lower.startsWith("intent://")) {
+            try {
+                val parsed = Intent.parseUri(targetUrl, Intent.URI_INTENT_SCHEME)
+                val fallbackUrl = parsed.getStringExtra("browser_fallback_url")
+                val pkg = parsed.`package`
+                val hasTarget = pkg == null || context.packageManager.resolveActivity(parsed, 0) != null
+                if (!hasTarget && !fallbackUrl.isNullOrBlank()) {
+                    fallbackLoader(fallbackUrl)
+                    return true
+                }
+                if (context.packageManager.resolveActivity(parsed, 0) != null) {
+                    parsed.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(parsed)
+                    return true
+                }
+                if (!fallbackUrl.isNullOrBlank()) {
+                    fallbackLoader(fallbackUrl)
+                    return true
+                }
+            } catch (_: Exception) {}
+            return true
+        }
+        return try {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+            true
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    fun configureSharedWebView(wv: WebView) {
+        try {
+            val cm = CookieManager.getInstance()
+            cm.setAcceptCookie(true)
+            cm.setAcceptThirdPartyCookies(wv, true)
+        } catch (_: Exception) {}
+
+        wv.settings.apply {
+            javaScriptEnabled = jsEnabled
+            javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(true)
+            domStorageEnabled = domStorage
+            databaseEnabled = true
+            allowFileAccess = true
+            allowContentAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            useWideViewPort = true
+            loadWithOverviewMode = isDesktopMode || defaultDesktopMode
+            layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
+            mediaPlaybackRequiresUserGesture = false
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            textZoom = pageZoom
+            if (defaultDesktopMode) isDesktopMode = true
+            userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
+        }
+    }
+
+    fun closeOAuthPopup() {
+        val popup = oauthPopupWebView
+        oauthPopupWebView = null
+        popup?.let {
+            try {
+                it.stopLoading()
+                it.removeAllViews()
+                it.destroy()
+            } catch (_: Exception) {}
+        }
+    }
+
     LaunchedEffect(webViewRef) {
         onReloadProvided?.invoke {
             webViewRef?.reload()
         }
+        onLoadUrlProvided?.invoke { nextUrl ->
+            loadUrl(nextUrl)
+        }
     }
 
     BackHandler {
-        if (showHistorySheet) {
+        if (oauthPopupWebView != null) {
+            if (oauthPopupWebView?.canGoBack() == true) {
+                oauthPopupWebView?.goBack()
+            } else {
+                closeOAuthPopup()
+            }
+        } else if (serverToStop != null) {
+            serverToStop = null
+        } else if (showHistorySheet) {
             showHistorySheet = false
         } else if (showSettingsSheet) {
             showSettingsSheet = false
@@ -574,24 +673,32 @@ fun EmbeddedDevBrowser(
         }
     }
 
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // Slim Browser Header Bar (compact height)
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
-                modifier = Modifier.fillMaxWidth()
+    GlassBackground(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = Color.Transparent,
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
             ) {
-                Row(
+                // Liquid Glass Header Bar
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                        .glassSurface(
+                            shape = RoundedCornerShape(16.dp),
+                            tint = GlassTokens.SURFACE_BASE.copy(alpha = 0.78f),
+                            borderColor = Color.White.copy(alpha = 0.22f),
+                        )
                 ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     // Back, Forward, Refresh on the left side of the URL input box
                     IconButton(
                         onClick = { webViewRef?.goBack() },
@@ -827,6 +934,28 @@ fun EmbeddedDevBrowser(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Open in System Browser") },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    openInExternalBrowser(currentUrl)
+                                }
+                            )
+                            if (onOpenLocalhostTab != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Localhost Servers") },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    },
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        onOpenLocalhostTab.invoke()
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
                                 text = { Text("Browser Settings") },
                                 leadingIcon = {
                                     Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -855,91 +984,106 @@ fun EmbeddedDevBrowser(
             }
 
             // Live Localhost & Quick Port Presets Bar
-            if (isUrlFocused || livePorts.isNotEmpty()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth()
+            val livePortNums = liveServers.map { it.port }
+            if (isUrlFocused || liveServers.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            if (livePorts.isNotEmpty()) "Live:" else "Ports:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (livePorts.isNotEmpty()) Color(0xFF3FB950) else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = if (livePorts.isNotEmpty()) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.padding(end = 2.dp)
-                        )
-                        livePorts.forEach { portNum ->
-                            val portStr = ":$portNum"
+                    Text(
+                        if (liveServers.isNotEmpty()) "Live:" else "Ports:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (liveServers.isNotEmpty()) Color(0xFF3FB950) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (liveServers.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.padding(end = 2.dp)
+                    )
+                    liveServers.forEach { srv ->
+                        val portStr = ":${srv.port}"
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFF142A1E),
+                            border = BorderStroke(1.dp, Color(0xFF3FB950).copy(alpha = 0.7f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .combinedClickable(
+                                    onClick = {
+                                        loadUrl("http://localhost:${srv.port}")
+                                        focusManager.clearFocus()
+                                    },
+                                    onLongClick = {
+                                        serverToStop = srv
+                                    }
+                                )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF3FB950))
+                                )
+                                Text(
+                                    portStr,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = Color(0xFF3FB950)
+                                )
+                            }
+                        }
+                    }
+                    if (isUrlFocused) {
+                        quickPorts.filter { preset ->
+                            val num = preset.removePrefix(":").toIntOrNull()
+                            num == null || num !in livePortNums
+                        }.forEach { port ->
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFF1A2F23),
-                                border = BorderStroke(1.dp, Color(0xFF3FB950)),
+                                color = GlassTokens.SURFACE_BASE.copy(alpha = 0.6f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(14.dp))
                                     .clickable {
-                                        loadUrl("http://localhost:$portNum")
+                                        loadUrl(port)
                                         focusManager.clearFocus()
                                     }
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF3FB950))
-                                    )
-                                    Text(
-                                        portStr,
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.SemiBold
-                                        ),
-                                        color = Color(0xFF3FB950)
-                                    )
-                                }
-                            }
-                        }
-                        if (isUrlFocused) {
-                            quickPorts.filter { preset ->
-                                val num = preset.removePrefix(":").toIntOrNull()
-                                num == null || num !in livePorts
-                            }.forEach { port ->
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable {
-                                            loadUrl(port)
-                                            focusManager.clearFocus()
-                                        }
-                                ) {
-                                    Text(
-                                        port,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
+                                Text(
+                                    port,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
                             }
                         }
                     }
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            // Smooth Web Loading Progress Indicator
+            val animatedProgress by animateFloatAsState(
+                targetValue = if (isPageLoading) (loadProgress.coerceIn(5, 99) / 100f) else 0f,
+                label = "browserLoadProgress"
+            )
+            if (isPageLoading) {
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = Color.Transparent,
+                )
+            } else {
+                HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+            }
 
             // Web View Container
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -954,31 +1098,7 @@ fun EmbeddedDevBrowser(
                             setLayerType(View.LAYER_TYPE_HARDWARE, null)
                             webViewRef = this
 
-                            try {
-                                val cm = CookieManager.getInstance()
-                                cm.setAcceptCookie(true)
-                                cm.setAcceptThirdPartyCookies(this, true)
-                            } catch (_: Exception) {}
-
-                            settings.apply {
-                                javaScriptEnabled = jsEnabled
-                                javaScriptCanOpenWindowsAutomatically = true
-                                domStorageEnabled = domStorage
-                                databaseEnabled = true
-                                allowFileAccess = true
-                                allowContentAccess = true
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                useWideViewPort = true
-                                loadWithOverviewMode = isDesktopMode || defaultDesktopMode
-                                layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
-                                mediaPlaybackRequiresUserGesture = false
-                                setSupportZoom(true)
-                                builtInZoomControls = true
-                                displayZoomControls = false
-                                textZoom = pageZoom
-                                if (defaultDesktopMode) isDesktopMode = true
-                                userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
-                            }
+                            configureSharedWebView(this)
 
                             WebView.setWebContentsDebuggingEnabled(true)
 
@@ -997,24 +1117,45 @@ fun EmbeddedDevBrowser(
                             }, "DevToolsBridge")
 
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                    val reqUrl = request?.url?.toString()
+                                    return handleCustomSchemeOrIntent(reqUrl) { fallback ->
+                                        view?.loadUrl(fallback)
+                                    }
+                                }
+
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
+                                    isPageLoading = true
+                                    loadProgress = 10
+                                    if (url != null) {
+                                        currentUrl = url
+                                        urlText = url
+                                    }
+                                    onProgressChanged?.invoke(10)
                                     onLoadingChanged?.invoke(true)
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
+                                    try { CookieManager.getInstance().flush() } catch (_: Exception) {}
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     onBackStateChanged?.invoke(canGoBack) { view?.goBack() }
-                                    if (url != null) urlText = url
+                                    if (url != null) {
+                                        currentUrl = url
+                                        urlText = url
+                                    }
                                     val title = view?.title
                                     if (!title.isNullOrEmpty()) {
                                         onTitleChanged?.invoke(title)
                                     } else if (url != null) {
-                                        val host = android.net.Uri.parse(url).host ?: "Dev Browser"
+                                        val host = Uri.parse(url).host ?: "Dev Browser"
                                         onTitleChanged?.invoke(host)
                                     }
+                                    isPageLoading = false
+                                    loadProgress = 100
+                                    onProgressChanged?.invoke(100)
                                     onLoadingChanged?.invoke(false)
                                     evaluateInspection(inspectMode)
                                     if (pageZoom != 100) {
@@ -1033,6 +1174,20 @@ fun EmbeddedDevBrowser(
                                     }
                                 }
 
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    super.onReceivedError(view, request, error)
+                                    if (request?.isForMainFrame == true) {
+                                        isPageLoading = false
+                                        loadProgress = 100
+                                        onProgressChanged?.invoke(100)
+                                        onLoadingChanged?.invoke(false)
+                                    }
+                                }
+
                                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                                     val failingUrl = error?.url ?: view?.url
                                     if (isLocalDevUrl(failingUrl)) {
@@ -1045,11 +1200,76 @@ fun EmbeddedDevBrowser(
                             }
 
                             webChromeClient = object : WebChromeClient() {
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    super.onProgressChanged(view, newProgress)
+                                    loadProgress = newProgress
+                                    isPageLoading = newProgress < 100
+                                    onProgressChanged?.invoke(newProgress)
+                                    onLoadingChanged?.invoke(newProgress < 100)
+                                }
+
                                 override fun onReceivedTitle(view: WebView?, title: String?) {
                                     super.onReceivedTitle(view, title)
                                     if (!title.isNullOrEmpty()) {
                                         onTitleChanged?.invoke(title)
                                     }
+                                }
+
+                                override fun onCreateWindow(
+                                    view: WebView?,
+                                    isDialog: Boolean,
+                                    isUserGesture: Boolean,
+                                    resultMsg: Message?
+                                ): Boolean {
+                                    val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+                                    val popup = WebView(ctx).apply {
+                                        layoutParams = ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        configureSharedWebView(this)
+                                        webViewClient = object : WebViewClient() {
+                                            override fun shouldOverrideUrlLoading(pv: WebView?, req: WebResourceRequest?): Boolean {
+                                                val reqUrl = req?.url?.toString()
+                                                return handleCustomSchemeOrIntent(reqUrl) { fallback ->
+                                                    pv?.loadUrl(fallback)
+                                                }
+                                            }
+                                            override fun onPageStarted(pv: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                                super.onPageStarted(pv, url, favicon)
+                                                if (url != null) oauthPopupUrl = url
+                                            }
+                                            override fun onPageFinished(pv: WebView?, url: String?) {
+                                                super.onPageFinished(pv, url)
+                                                try { CookieManager.getInstance().flush() } catch (_: Exception) {}
+                                                if (url != null) oauthPopupUrl = url
+                                                val title = pv?.title
+                                                if (!title.isNullOrBlank()) oauthPopupTitle = title
+                                            }
+                                        }
+                                        webChromeClient = object : WebChromeClient() {
+                                            override fun onProgressChanged(pv: WebView?, newProgress: Int) {
+                                                oauthPopupProgress = newProgress
+                                            }
+                                            override fun onReceivedTitle(pv: WebView?, title: String?) {
+                                                if (!title.isNullOrBlank()) oauthPopupTitle = title
+                                            }
+                                            override fun onCloseWindow(window: WebView?) {
+                                                post { closeOAuthPopup() }
+                                            }
+                                        }
+                                    }
+                                    oauthPopupTitle = "Sign in"
+                                    oauthPopupUrl = ""
+                                    oauthPopupProgress = 10
+                                    oauthPopupWebView = popup
+                                    transport.webView = popup
+                                    resultMsg.sendToTarget()
+                                    return true
+                                }
+
+                                override fun onCloseWindow(window: WebView?) {
+                                    closeOAuthPopup()
                                 }
 
                                 override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
@@ -1227,6 +1447,121 @@ fun EmbeddedDevBrowser(
                 }
             }
         }
+    }
+    }
+
+    // Embedded OAuth / Sign-in Popup Window Dialog
+    oauthPopupWebView?.let { popup ->
+        Dialog(
+            onDismissRequest = { closeOAuthPopup() },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp)
+                    .glassSurface(
+                        shape = RoundedCornerShape(20.dp),
+                        tint = GlassTokens.SURFACE_BASE.copy(alpha = 0.94f),
+                        borderColor = Color.White.copy(alpha = 0.25f),
+                    )
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = Color(0xFF3FB950),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                oauthPopupTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (oauthPopupUrl.isNotBlank()) {
+                                Text(
+                                    oauthPopupUrl,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (oauthPopupUrl.isNotBlank()) {
+                            IconButton(onClick = { openInExternalBrowser(oauthPopupUrl) }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.OpenInNew,
+                                    contentDescription = "Open in system browser",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        IconButton(onClick = { closeOAuthPopup() }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close sign-in window")
+                        }
+                    }
+                    if (oauthPopupProgress in 1..99) {
+                        LinearProgressIndicator(
+                            progress = { oauthPopupProgress / 100f },
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                        )
+                    } else {
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
+                    }
+                    AndroidView(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        factory = { popup },
+                    )
+                }
+            }
+        }
+    }
+
+    // Long-press Stop Localhost Confirmation Dialog
+    serverToStop?.let { srv ->
+        AlertDialog(
+            onDismissRequest = { serverToStop = null },
+            title = { Text("Stop localhost:${srv.port}?") },
+            text = {
+                val pidPart = srv.pid?.let { " (PID $it)" } ?: ""
+                val cmdPart = if (srv.commandLine.isNotBlank()) "\n${srv.commandLine}" else ""
+                Text("Terminate ${srv.processName}$pidPart listening on port ${srv.port}.$cmdPart")
+            },
+            dismissButton = {
+                TextButton(onClick = { serverToStop = null }) { Text("Cancel") }
+            },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        val target = srv
+                        serverToStop = null
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) { LocalhostServerManager.stopServer(target) }
+                            Toast.makeText(
+                                context,
+                                if (ok) "Stopped :${target.port}" else "Could not find process PID for :${target.port}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            delay(150L)
+                            refreshLiveServers()
+                        }
+                    },
+                ) {
+                    Text("Stop Server")
+                }
+            },
+        )
     }
 
     // DevTools Bottom Sheet (Console & DOM Details)

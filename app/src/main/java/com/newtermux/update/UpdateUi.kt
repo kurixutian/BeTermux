@@ -56,6 +56,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.newtermux.compose.NewTermuxComposeTheme
+import com.newtermux.glass.GlassTokens
+import com.newtermux.glass.glassSurface
 import com.newtermux.update.UpdateManager.DownloadState
 import com.newtermux.update.UpdateManager.UpdateInfo
 import java.util.Locale
@@ -82,6 +84,7 @@ object UpdateUi {
     fun attach(activity: AppCompatActivity) {
         val view = ComposeView(activity).apply {
             isFocusable = false
+            isFocusableInTouchMode = false
             descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
             setContent { NewTermuxComposeTheme(activity) { Overlay(activity) } }
         }
@@ -162,11 +165,14 @@ fun UpdatePill(info: UpdateInfo, visible: Boolean, onDismiss: () -> Unit, onView
         enter = slideInHorizontally(tween(SLIDE_MS)) { it + 48 } + fadeIn(tween(SLIDE_MS / 2)),
         exit = slideOutHorizontally(tween(SLIDE_MS)) { it + 48 } + fadeOut(tween(SLIDE_MS / 2)),
     ) {
-        Surface(
-            shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(26.dp)),
-            shadowElevation = 8.dp,
+        Box(
+            modifier = Modifier.glassSurface(
+                shape = RoundedCornerShape(26.dp),
+                elevation = 8.dp,
+                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.72f),
+                borderColor = MaterialTheme.colorScheme.primary,
+                sampleBackdrop = false,
+            ),
         ) {
             Row(
                 modifier = Modifier.height(52.dp).padding(start = 8.dp, end = 8.dp),

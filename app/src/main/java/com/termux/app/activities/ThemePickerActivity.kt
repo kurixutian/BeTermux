@@ -67,6 +67,10 @@ import androidx.compose.ui.unit.dp
 import com.newtermux.compose.MenuItemDivider
 import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.compose.outlinedMenuCard
+import com.newtermux.glass.GlassBackground
+import com.newtermux.glass.GlassPageBackdropProvider
+import com.newtermux.glass.GlassTopBar
+import com.newtermux.glass.glassPageSource
 import com.newtermux.deck.DeckBridge
 import com.newtermux.features.ColorPickerDialog
 import com.newtermux.features.NewTermuxColorTheme
@@ -116,33 +120,21 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
     }
     val accentColors = remember { NewTermuxTheme.COLORS.toList() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Themes & Colors") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { overflowOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                    }
-                    DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, modifier = Modifier.outlinedMenuCard()) {
-                        DropdownMenuItem(text = { Text("Custom Theme") }, onClick = { overflowOpen = false; showScope = true })
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    GlassPageBackdropProvider {
+        GlassBackground(accent = Color(activeAccent)) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxSize().glassPageSource(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        start = 10.dp,
+                        end = 10.dp,
+                        top = 88.dp,
+                        bottom = 24.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Layout") }
 
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -215,6 +207,23 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                                 activeAccent = picked
                             }
                             .show()
+                    },
+                )
+            }
+        }
+                GlassTopBar(
+                    title = "Themes & Colors",
+                    onBack = onBack,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    actions = {
+                        Box {
+                            IconButton(onClick = { overflowOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                            }
+                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, modifier = Modifier.outlinedMenuCard()) {
+                                DropdownMenuItem(text = { Text("Custom Theme") }, onClick = { overflowOpen = false; showScope = true })
+                            }
+                        }
                     },
                 )
             }

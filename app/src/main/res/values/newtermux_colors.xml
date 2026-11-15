@@ -7,14 +7,14 @@
     <color name="nt_secondary">#06B6D4</color>
     <color name="nt_secondary_variant">#0891B2</color>
 
-    <!-- Backgrounds (Deep Obsidian & Dark Slate) -->
+    <!-- Backgrounds (Deep Obsidian Liquid Glass) -->
     <color name="nt_background">#0D1117</color>
     <color name="nt_surface">#161B22</color>
-    <color name="nt_surface_variant">#21262D</color>
+    <color name="nt_surface_variant">#1F2630</color>
     <!-- Popup / pop-out menu styling -->
-    <color name="nt_menu_outline">#30363D</color>
-    <color name="nt_menu_divider">#21262D</color>
-    <color name="nt_card_background">#161B22</color>
+    <color name="nt_menu_outline">#33FFFFFF</color>
+    <color name="nt_menu_divider">#1FFFFFFF</color>
+    <color name="nt_card_background">#CC161B22</color>
 
     <!-- On colors -->
     <color name="nt_on_primary">#FFFFFF</color>
@@ -37,11 +37,11 @@
     <!-- Session tab bar -->
     <color name="nt_tab_active">#8B5CF6</color>
     <color name="nt_tab_inactive">#484F58</color>
-    <color name="nt_tab_bg">#0D1117</color>
+    <color name="nt_tab_bg">#EB0B0F17</color>
 
     <!-- Toolbar -->
-    <color name="nt_toolbar_bg">#161B22</color>
-    <color name="nt_toolbar_icon">#C9D1D9</color>
+    <color name="nt_toolbar_bg">#E6111620</color>
+    <color name="nt_toolbar_icon">#E6EDF3</color>
     <color name="nt_toolbar_text">#F0F6FC</color>
 
     <!-- Root indicator -->
@@ -53,6 +53,6 @@
     <color name="nt_stt_idle">#8B5CF6</color>
 
     <!-- Divider / border -->
-    <color name="nt_divider">#21262D</color>
-    <color name="nt_border">#30363D</color>
+    <color name="nt_divider">#1FFFFFFF</color>
+    <color name="nt_border">#2EFFFFFF</color>
 </resources>

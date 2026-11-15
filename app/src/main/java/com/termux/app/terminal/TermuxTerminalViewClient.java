@@ -57,8 +57,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
-import androidx.drawerlayout.widget.DrawerLayout;
-
 public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
     final TermuxActivity mActivity;
@@ -199,10 +197,25 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
         TerminalEmulator term = mActivity.getCurrentSession().getEmulator();
         if (!term.isMouseTrackingActive() && !e.isFromSource(InputDevice.SOURCE_MOUSE)) {
-            if (!KeyboardUtils.areDisableSoftKeyboardFlagsSet(mActivity))
-                KeyboardUtils.showSoftKeyboard(mActivity, mActivity.getTerminalView());
-            else
+            if (ViewUtils.isFloatingMultiWindow(mActivity) && mActivity.getPreferences().isSoftKeyboardEnabled()) {
+                KeyboardUtils.clearDisableSoftKeyboardFlags(mActivity);
+            }
+            if (!KeyboardUtils.areDisableSoftKeyboardFlagsSet(mActivity)) {
+                com.termux.view.TerminalView tv = mActivity.getTerminalView();
+                boolean hadFocus = tv.hasFocus();
+                if (!hadFocus) {
+                    tv.requestFocusFromTouch();
+                    tv.requestFocus();
+                }
+                KeyboardUtils.showSoftKeyboard(mActivity, tv);
+                if (!hadFocus || ViewUtils.isFloatingMultiWindow(mActivity)) {
+                    android.view.inputmethod.InputMethodManager imm =
+                        (android.view.inputmethod.InputMethodManager) mActivity.getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.restartInput(tv);
+                }
+            } else {
                 Logger.logVerbose(LOG_TAG, "Not showing soft keyboard onSingleTapUp since its disabled");
+            }
         }
     }
 
@@ -230,8 +243,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
     @Override
     public void copyModeChanged(boolean copyMode) {
-        // Disable drawer while copying.
-        mActivity.getDrawer().setDrawerLockMode(copyMode ? DrawerLayout.LOCK_MODE_LOCKED_CLOSED : DrawerLayout.LOCK_MODE_UNLOCKED);
+        // No side drawer to lock.
     }
 
 
@@ -265,10 +277,6 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
                 mTermuxTerminalSessionActivityClient.switchToSession(true);
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP || unicodeChar == 'p' /* previous */) {
                 mTermuxTerminalSessionActivityClient.switchToSession(false);
-            } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                mActivity.getDrawer().openDrawer(Gravity.LEFT);
-            } else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                mActivity.getDrawer().closeDrawers();
             } else if (unicodeChar == 'k'/* keyboard */) {
                 onToggleSoftKeyboardRequest();
             } else if (unicodeChar == 'm'/* menu */) {
@@ -1010,6 +1018,10 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
                     }
                     Logger.logVerbose(LOG_TAG, "Showing soft keyboard on focus change");
                 } else {
+                    if (ViewUtils.isFloatingMultiWindow(mActivity) && !mActivity.hasWindowFocus()) {
+                        // Do not tear down the IME simply because another window took temporary focus in freeform mode
+                        return;
+                    }
                     Logger.logVerbose(LOG_TAG, "Hiding soft keyboard on focus change");
                 }
 

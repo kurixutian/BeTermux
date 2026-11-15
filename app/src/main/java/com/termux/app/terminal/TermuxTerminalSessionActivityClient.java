@@ -408,8 +408,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
                     newTerminalSession.write(cmd.getBytes(), 0, cmd.length());
                 }
             }
-
-            mActivity.getDrawer().closeDrawers();
         }
     }
 

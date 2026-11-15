@@ -66,9 +66,18 @@ public class KeyboardUtils {
      */
     public static void showSoftKeyboard(final Context context, final View view) {
         if (context == null || view == null) return;
+        if (!view.isFocusable()) view.setFocusable(true);
+        if (!view.isFocusableInTouchMode()) view.setFocusableInTouchMode(true);
+        if (!view.hasFocus()) {
+            view.requestFocusFromTouch();
+            view.requestFocus();
+        }
         InputMethodManager inputMethodManager = (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (inputMethodManager != null)
-            inputMethodManager.showSoftInput(view, 0);
+        if (inputMethodManager != null) {
+            if (!inputMethodManager.showSoftInput(view, 0)) {
+                inputMethodManager.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
+            }
+        }
     }
 
     public static void hideSoftKeyboard(final Context context, final View view) {

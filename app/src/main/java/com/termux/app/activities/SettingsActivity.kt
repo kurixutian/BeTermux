@@ -52,9 +52,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.newtermux.compose.LocalGlassToggle
 import com.newtermux.compose.MenuItemDivider
 import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.compose.outlinedMenuCard
+import com.newtermux.glass.GlassBackground
+import com.newtermux.glass.GlassCard
+import com.newtermux.glass.GlassPageBackdropProvider
+import com.newtermux.glass.GlassTopBar
+import com.newtermux.glass.LocalGlassEnabled
+import com.newtermux.glass.glassPageSource
 import com.newtermux.features.NewTermuxSettings
 import com.newtermux.features.TextExpansionStore
 import com.newtermux.update.UpdateHighlightsDialog
@@ -137,22 +144,25 @@ private fun SettingsRoot(activity: Activity) {
 
 // ---------------------------------------------------------------- shared UI
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScaffold(title: String, onBack: () -> Unit, content: @Composable (Modifier) -> Unit) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        content(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()))
+    GlassPageBackdropProvider {
+        GlassBackground {
+            Box(modifier = Modifier.fillMaxSize()) {
+                content(
+                    Modifier
+                        .fillMaxSize()
+                        .glassPageSource()
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 88.dp, bottom = 24.dp),
+                )
+                GlassTopBar(
+                    title = title,
+                    onBack = onBack,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
+        }
     }
 }
 
@@ -160,7 +170,7 @@ private fun SettingsScaffold(title: String, onBack: () -> Unit, content: @Compos
 private fun CategoryHeader(text: String) {
     Text(
         text,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp),
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
     )
@@ -168,27 +178,37 @@ private fun CategoryHeader(text: String) {
 
 @Composable
 private fun NavRow(title: String, summary: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxWidth().let { if (enabled) it.clickable(onClick = onClick) else it }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        onClick = if (enabled) onClick else null,
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
-        summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
     }
 }
 
 @Composable
 private fun SwitchRow(title: String, summary: String?, checked: Boolean, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        onClick = if (enabled) { { onCheckedChange(!checked) } } else null,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
@@ -390,20 +410,22 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
     val zshInstalled = remember { File(TermuxConstants.TERMUX_PREFIX_DIR_PATH, "bin/zsh").exists() }
 
     SettingsScaffold("Features", onBack) { mod ->
+        val glassEnabled = LocalGlassEnabled.current
+        val setGlassEnabled = LocalGlassToggle.current
         Column(modifier = mod) {
+            CategoryHeader("Appearance")
+            SwitchRow(
+                title = "Liquid Glass",
+                summary = "Live blur, AGSL lens refraction, and adaptive specular depth",
+                checked = glassEnabled,
+                onCheckedChange = setGlassEnabled,
+            )
+
             CategoryHeader("Keyboard")
             NtSwitch(context, NewTermuxSettings.KEY_KEYBOARD_SUGGESTIONS, "Keyboard Suggestions", "Show autocorrect and word suggestions bar")
             NtSwitch(context, NewTermuxSettings.KEY_AUTOCORRECT, "Command Autocorrect", "Suggest corrections for mistyped commands (spacebar)")
             NtSwitch(context, NewTermuxSettings.KEY_URL_DETECTION_ENABLED, "URL Detection", "Long-press a URL in the terminal to open or copy it")
             NtSwitch(context, NewTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, "Show Extra Keys Toolbar", "Show the ESC, TAB, arrow key row above the keyboard")
-            NtSwitch(context, NewTermuxSettings.KEY_EXTRA_KEYS_IN_DRAWER, "Extra Keys in Right Drawer", "Move extra keys to a swipeable right-side drawer — takes effect on restart")
-
-            CategoryHeader("Toolbar Buttons")
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_AC_BUTTON, "AC Toggle Button", "Show autocorrect on/off button in toolbar")
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_ROOT_BUTTON, "Root Toggle Button", null)
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_STT_BUTTON, "Speech-to-Text Button", null)
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_PACKAGES_BUTTON, "Package Manager Button", null)
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_CLEAR_BUTTON, "Clear Terminal Button", null)
 
             CategoryHeader("Session Tabs")
             NtSwitch(context, NewTermuxSettings.KEY_SESSION_TABS, "Show Session Tabs", "Show session tab chips at the top")
@@ -423,11 +445,6 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
                 }
             }
             ZshPluginsSwitch(context, zshInstalled, onChanged = { showRestartWarning = true })
-
-            CategoryHeader("Drawer")
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_DRAWER_EXPORT_SCRIPT, "Export Screen & Make Script", "Show Export Screen and Make Script buttons in the drawer")
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_DRAWER_PKG_UPDATE, "Pkg Update Button", "Show a button that runs pkg update && pkg upgrade -y")
-            NtSwitch(context, NewTermuxSettings.KEY_SHOW_DRAWER_CMD_BUTTONS, "Drawer Command Buttons", "Show customisable command shortcut buttons")
 
             CategoryHeader("Background")
             KeepAliveSwitch(activity)
