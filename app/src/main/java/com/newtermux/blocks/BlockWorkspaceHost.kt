@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +60,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -124,6 +127,7 @@ fun BlockWorkspaceHost(
     stateFlowOverride: StateFlow<BlockSessionState>? = null,
     externalSearchTrigger: Int = 0,
     onPaneFocused: (() -> Unit)? = null,
+    onPinchZoomStep: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalWarpPalette.current
@@ -214,13 +218,15 @@ fun BlockWorkspaceHost(
         map
     }
 
-    // Keep viewport scrolled to the latest active block while typing/streaming unless user scrolled away.
-    LaunchedEffect(state.blocks.size, state.revision) {
+    // Keep viewport scrolled to the latest active block when new rows arrive unless user scrolled away.
+    val lastEndAbsRow = state.blocks.lastOrNull()?.endAbsRow ?: state.unblockifiedHeader?.endAbsRow ?: -1L
+    LaunchedEffect(state.blocks.size, lastEndAbsRow) {
+        if (listState.isScrollInProgress) return@LaunchedEffect
         val lastItem = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
         val visible = listState.layoutInfo.visibleItemsInfo
-        val nearBottom = visible.isEmpty() || (visible.lastOrNull()?.index ?: 0) >= (lastItem - 3)
+        val nearBottom = visible.isEmpty() || !listState.canScrollForward || (visible.lastOrNull()?.index ?: 0) >= (lastItem - 1)
         if (nearBottom && lastItem > 0) {
-            listState.scrollToItem(lastItem)
+            listState.scrollToItem(lastItem, 100_000)
         }
     }
 
@@ -235,9 +241,37 @@ fun BlockWorkspaceHost(
         }
     }
 
+    val pinchModifier = if (onPinchZoomStep != null) {
+        Modifier.pointerInput(onPinchZoomStep) {
+            awaitEachGesture {
+                var scaleAccum = 1f
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val pressedCount = event.changes.count { it.pressed }
+                    if (pressedCount >= 2) {
+                        val zoom = event.calculateZoom()
+                        if (zoom != 1f) {
+                            scaleAccum *= zoom
+                            if (scaleAccum > 1.1f || scaleAccum < 0.9f) {
+                                onPinchZoomStep(scaleAccum > 1f)
+                                scaleAccum = 1f
+                            }
+                            event.changes.forEach { it.consume() }
+                        }
+                    } else if (pressedCount == 0) {
+                        break
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
+            .then(pinchModifier)
             .onPreviewKeyEvent { keyEvent ->
                 val native = keyEvent.nativeKeyEvent
                 if (keyEvent.type == KeyEventType.KeyDown &&
@@ -710,67 +744,62 @@ private fun BlockCommandHeader(
                     .fillMaxHeight()
                     .background(stripColor)
             )
-            Row(
+            Column(
                 modifier = Modifier
                     .weight(1f)
                     .padding(
                         horizontal = density.horizontalPaddingDp.dp,
                         vertical = (density.verticalPaddingDp * 0.7f).dp
-                    ),
-                verticalAlignment = Alignment.CenterVertically
+                    )
             ) {
-                Text(
-                    text = "$",
-                    color = if (block.isFailure) palette.error else palette.defaultAccent,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = block.command,
-                    color = palette.textPrimary,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                if (!cwdLabel.isNullOrBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "$",
+                        color = if (block.isFailure) palette.error else palette.defaultAccent,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = cwdLabel,
-                        color = palette.textMuted,
-                        fontSize = 11.sp,
-                        maxLines = 1
+                        text = block.command,
+                        color = palette.textPrimary,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = if (density == BlockDensity.COMFORT) 2 else 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+                    if (density == BlockDensity.COMPACT) {
+                        BlockHeaderMetadataBadges(
+                            cwdLabel = cwdLabel,
+                            durationLabel = durationLabel,
+                            exitCode = block.exitCode,
+                            isRunning = block.isRunning
+                        )
+                    }
                 }
-                if (durationLabel != null) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = durationLabel,
-                        color = palette.textSecondary,
-                        fontSize = 11.sp
-                    )
-                }
-                if (block.exitCode != null) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    val code = block.exitCode
-                    Text(
-                        text = if (code == 0) "0" else "err $code",
-                        color = if (code == 0) palette.textMuted else palette.error,
-                        fontSize = 11.sp,
-                        fontWeight = if (code != 0) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                } else if (block.isRunning) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "run",
-                        color = palette.defaultAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                if (density == BlockDensity.COMFORT &&
+                    (!cwdLabel.isNullOrBlank() || durationLabel != null || block.exitCode != null || block.isRunning)
+                ) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BlockHeaderMetadataBadges(
+                            cwdLabel = cwdLabel,
+                            durationLabel = durationLabel,
+                            exitCode = block.exitCode,
+                            isRunning = block.isRunning,
+                            leadingSpacer = false
+                        )
+                    }
                 }
             }
 
@@ -779,7 +808,6 @@ private fun BlockCommandHeader(
                     IconButton(
                         onClick = { menuExpanded = true },
                         modifier = Modifier
-                            .size(32.dp)
                             .semantics { contentDescription = "Block actions for ${block.command}" }
                     ) {
                         Icon(
@@ -851,6 +879,54 @@ private fun BlockCommandHeader(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BlockHeaderMetadataBadges(
+    cwdLabel: String?,
+    durationLabel: String?,
+    exitCode: Int?,
+    isRunning: Boolean,
+    leadingSpacer: Boolean = true
+) {
+    val palette = LocalWarpPalette.current
+    var needsGap = leadingSpacer
+    if (!cwdLabel.isNullOrBlank()) {
+        if (needsGap) Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = cwdLabel,
+            color = palette.textMuted,
+            fontSize = 11.sp,
+            maxLines = 1
+        )
+        needsGap = true
+    }
+    if (durationLabel != null) {
+        if (needsGap) Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = durationLabel,
+            color = palette.textSecondary,
+            fontSize = 11.sp
+        )
+        needsGap = true
+    }
+    if (exitCode != null) {
+        if (needsGap) Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = if (exitCode == 0) "0" else "err $exitCode",
+            color = if (exitCode == 0) palette.textMuted else palette.error,
+            fontSize = 11.sp,
+            fontWeight = if (exitCode != 0) FontWeight.SemiBold else FontWeight.Normal
+        )
+    } else if (isRunning) {
+        if (needsGap) Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "run",
+            color = palette.defaultAccent,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 

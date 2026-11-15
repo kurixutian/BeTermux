@@ -138,7 +138,6 @@ fun AiSuggestionBlock(
                 IconButton(
                     onClick = if (state is AiSuggestionState.Loading) onCancel else onDismiss,
                     modifier = Modifier
-                        .size(28.dp)
                         .testTag("ai_dismiss_${state.blockId}")
                         .semantics {
                             contentDescription = if (state is AiSuggestionState.Loading) {

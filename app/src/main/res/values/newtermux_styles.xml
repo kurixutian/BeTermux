@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- Base NewTermux theme - Material 3 Dark -->
-    <style name="Theme.NewTermux" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <!-- Base NewTermux theme - Material Dark -->
+    <style name="Theme.NewTermux" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:textColorPrimary">@color/nt_on_surface</item>
         <item name="colorPrimary">@color/nt_primary</item>
         <item name="colorPrimaryVariant">@color/nt_primary_variant</item>
         <item name="colorSecondary">@color/nt_secondary</item>

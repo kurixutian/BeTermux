@@ -126,7 +126,8 @@ class BlockHostBridge(private val activity: TermuxActivity) {
                                     onAiCancel = { aiCancelHandler?.invoke() },
                                     onAiDismiss = { id -> aiDismissHandler?.invoke(id) },
                                     onOpenAiSettings = { openAiSettingsHandler?.invoke() },
-                                    externalSearchTrigger = searchSeq
+                                    externalSearchTrigger = searchSeq,
+                                    onPinchZoomStep = { increase -> handlePinchZoomStep(increase) }
                                 )
                             },
                             secondaryContent = {
@@ -156,6 +157,7 @@ class BlockHostBridge(private val activity: TermuxActivity) {
                                     onAiDismiss = { id -> aiDismissHandler?.invoke(id) },
                                     onOpenAiSettings = { openAiSettingsHandler?.invoke() },
                                     stateFlowOverride = controller.stateFlowForSession(companionHandle),
+                                    onPinchZoomStep = { increase -> handlePinchZoomStep(increase) },
                                     onPaneFocused = {
                                         if (companionSess != null) {
                                             splitSecondaryHandleFlow.value = activeState.sessionHandle
@@ -186,7 +188,8 @@ class BlockHostBridge(private val activity: TermuxActivity) {
                             onAiCancel = { aiCancelHandler?.invoke() },
                             onAiDismiss = { id -> aiDismissHandler?.invoke(id) },
                             onOpenAiSettings = { openAiSettingsHandler?.invoke() },
-                            externalSearchTrigger = searchSeq
+                            externalSearchTrigger = searchSeq,
+                            onPinchZoomStep = { increase -> handlePinchZoomStep(increase) }
                         )
                     }
                 }
@@ -338,6 +341,15 @@ class BlockHostBridge(private val activity: TermuxActivity) {
                 tv.requestFocus()
             }
             KeyboardUtils.showSoftKeyboard(activity, tv)
+        }
+    }
+
+    private fun handlePinchZoomStep(increase: Boolean) {
+        val client = activity.termuxTerminalViewClient ?: return
+        client.changeFontSize(increase)
+        val activeHandle = controller.activeState.value.sessionHandle
+        if (activeHandle.isNotEmpty()) {
+            controller.getSession(activeHandle)?.let { controller.onSessionTextChanged(it) }
         }
     }
 }

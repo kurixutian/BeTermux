@@ -1,6 +1,7 @@
 package com.newtermux.compose
 
 import android.content.Context
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -140,8 +141,11 @@ fun NewTermuxComposeTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = WarpTypography,
-            content = content,
-        )
+        ) {
+            CompositionLocalProvider(LocalContentColor provides palette.textPrimary) {
+                content()
+            }
+        }
     }
 }
 
