@@ -52,18 +52,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.newtermux.compose.LocalGlassToggle
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.newtermux.ai.AiKeyStore
+import com.newtermux.ai.AiProviderKind
+import com.newtermux.blocks.BlockDensity
 import com.newtermux.compose.MenuItemDivider
 import com.newtermux.compose.NewTermuxComposeTheme
+import com.newtermux.compose.WarpThemeState
 import com.newtermux.compose.outlinedMenuCard
-import com.newtermux.glass.GlassBackground
-import com.newtermux.glass.GlassCard
-import com.newtermux.glass.GlassPageBackdropProvider
-import com.newtermux.glass.GlassTopBar
-import com.newtermux.glass.LocalGlassEnabled
-import com.newtermux.glass.glassPageSource
+import com.newtermux.theme.WarpChip
 import com.newtermux.features.NewTermuxSettings
 import com.newtermux.features.TextExpansionStore
+import com.newtermux.theme.WarpBackground
+import com.newtermux.theme.WarpCard
+import com.newtermux.theme.WarpSegmentedBar
+import com.newtermux.theme.WarpSegmentedItem
+import com.newtermux.theme.WarpTopBar
 import com.newtermux.update.UpdateHighlightsDialog
 import com.newtermux.update.UpdateHost
 import com.newtermux.update.UpdateManager
@@ -101,25 +105,34 @@ import java.io.InputStream
  * existing SharedPreferences / data-store APIs.
  */
 class SettingsActivity : AppCompatActivity() {
+    companion object {
+        const val EXTRA_ROUTE = "route"
+        const val ROUTE_AI_ASSISTANT = "ai_assistant"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val initialRoute = when (intent?.getStringExtra(EXTRA_ROUTE)) {
+            ROUTE_AI_ASSISTANT -> Route.AI_ASSISTANT
+            else -> Route.ROOT
+        }
         setContent {
             NewTermuxComposeTheme(this) {
-                SettingsRoot(activity = this)
+                SettingsRoot(activity = this, initialRoute = initialRoute)
             }
         }
     }
 }
 
 private enum class Route {
-    ROOT, BACKUP, FEATURES, TEXT_EXPANSION, UPDATES,
+    ROOT, BACKUP, FEATURES, AI_ASSISTANT, TEXT_EXPANSION, UPDATES,
     TERMUX, TERMINAL_IO, TERMINAL_VIEW, DEBUGGING,
     PLUGIN_API, PLUGIN_FLOAT, PLUGIN_TASKER, PLUGIN_WIDGET,
 }
 
 @Composable
-private fun SettingsRoot(activity: Activity) {
-    val stack = remember { mutableStateListOf(Route.ROOT) }
+private fun SettingsRoot(activity: Activity, initialRoute: Route = Route.ROOT) {
+    val stack = remember { mutableStateListOf(initialRoute) }
     fun push(r: Route) = stack.add(r)
     fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) else activity.finish() }
 
@@ -129,6 +142,7 @@ private fun SettingsRoot(activity: Activity) {
         Route.ROOT -> RootScreen(activity, onBack = { pop() }, onNav = { push(it) })
         Route.BACKUP -> BackupScreen(onBack = { pop() })
         Route.FEATURES -> FeaturesScreen(activity, onBack = { pop() })
+        Route.AI_ASSISTANT -> AiAssistantScreen(onBack = { pop() })
         Route.TEXT_EXPANSION -> TextExpansionScreen(onBack = { pop() })
         Route.UPDATES -> UpdatesScreen(activity, onBack = { pop() })
         Route.TERMUX -> TermuxScreen(onBack = { pop() }, onNav = { push(it) })
@@ -146,22 +160,19 @@ private fun SettingsRoot(activity: Activity) {
 
 @Composable
 private fun SettingsScaffold(title: String, onBack: () -> Unit, content: @Composable (Modifier) -> Unit) {
-    GlassPageBackdropProvider {
-        GlassBackground {
-            Box(modifier = Modifier.fillMaxSize()) {
-                content(
-                    Modifier
-                        .fillMaxSize()
-                        .glassPageSource()
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 88.dp, bottom = 24.dp),
-                )
-                GlassTopBar(
-                    title = title,
-                    onBack = onBack,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                )
-            }
+    WarpBackground {
+        Box(modifier = Modifier.fillMaxSize()) {
+            content(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 88.dp, bottom = 24.dp),
+            )
+            WarpTopBar(
+                title = title,
+                onBack = onBack,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
     }
 }
@@ -178,7 +189,7 @@ private fun CategoryHeader(text: String) {
 
 @Composable
 private fun NavRow(title: String, summary: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
-    GlassCard(
+    WarpCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -193,7 +204,7 @@ private fun NavRow(title: String, summary: String? = null, enabled: Boolean = tr
 
 @Composable
 private fun SwitchRow(title: String, summary: String?, checked: Boolean, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
-    GlassCard(
+    WarpCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -296,6 +307,7 @@ private fun RootScreen(activity: Activity, onBack: () -> Unit, onNav: (Route) ->
             HorizontalDivider()
             NavRow("Backup & Restore", "Back up or restore your Termux environment") { onNav(Route.BACKUP) }
             NavRow("Features", "Toggle NewTermux features on or off") { onNav(Route.FEATURES) }
+            NavRow("AI Assistant", "Configure inline block AI provider, API key, and token limit") { onNav(Route.AI_ASSISTANT) }
             NavRow("Text Expansion", "Auto-expand short triggers to full commands") { onNav(Route.TEXT_EXPANSION) }
             HorizontalDivider()
             NavRow("Termux", "Terminal, keyboard and debugging options") { onNav(Route.TERMUX) }
@@ -410,17 +422,7 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
     val zshInstalled = remember { File(TermuxConstants.TERMUX_PREFIX_DIR_PATH, "bin/zsh").exists() }
 
     SettingsScaffold("Features", onBack) { mod ->
-        val glassEnabled = LocalGlassEnabled.current
-        val setGlassEnabled = LocalGlassToggle.current
         Column(modifier = mod) {
-            CategoryHeader("Appearance")
-            SwitchRow(
-                title = "Liquid Glass",
-                summary = "Live blur, AGSL lens refraction, and adaptive specular depth",
-                checked = glassEnabled,
-                onCheckedChange = setGlassEnabled,
-            )
-
             CategoryHeader("Keyboard")
             NtSwitch(context, NewTermuxSettings.KEY_KEYBOARD_SUGGESTIONS, "Keyboard Suggestions", "Show autocorrect and word suggestions bar")
             NtSwitch(context, NewTermuxSettings.KEY_AUTOCORRECT, "Command Autocorrect", "Suggest corrections for mistyped commands (spacebar)")
@@ -430,6 +432,12 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
             CategoryHeader("Session Tabs")
             NtSwitch(context, NewTermuxSettings.KEY_SESSION_TABS, "Show Session Tabs", "Show session tab chips at the top")
             NtSwitch(context, NewTermuxSettings.KEY_SESSION_RENAME_ENABLED, "Session Renaming", "Long-press a session tab to rename it")
+
+            CategoryHeader("Terminal Blocks")
+            BlockViewSwitch(context)
+            BlockDensitySelector(context)
+            InputPositionSelector(context)
+            UiZoomSelector(context)
 
             CategoryHeader("Startup")
             NtSwitch(context, NewTermuxSettings.KEY_STARTUP_SCRIPT_ENABLED, "Startup Script", "Run ~/.termux/startup-script.sh in each new session")
@@ -467,6 +475,102 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
             text = { Text("Start a new terminal session for this change to take effect.") },
             confirmButton = { TextButton(onClick = { showRestartWarning = false }) { Text("OK") } },
         )
+    }
+}
+
+@Composable
+private fun BlockViewSwitch(context: Context) {
+    var enabled by remember { mutableStateOf(NewTermuxSettings.isBlockViewEnabled(context)) }
+    SwitchRow(
+        title = "Block View",
+        summary = "Group commands and outputs into navigable blocks with sticky headers",
+        checked = enabled,
+        onCheckedChange = {
+            enabled = it
+            NewTermuxSettings.setBlockViewEnabled(context, it)
+        }
+    )
+}
+
+@Composable
+private fun BlockDensitySelector(context: Context) {
+    val options = remember { listOf(BlockDensity.COMFORT, BlockDensity.COMPACT) }
+    var selected by remember { mutableStateOf(BlockDensity.fromKey(NewTermuxSettings.getBlockDensity(context))) }
+    val selectedIndex = options.indexOf(selected).coerceAtLeast(0)
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Text("Block Density", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.size(6.dp))
+        WarpSegmentedBar(
+            items = options.map { WarpSegmentedItem(it.label) },
+            selectedIndex = selectedIndex,
+            onSelect = { index ->
+                val chosen = options.getOrNull(index) ?: return@WarpSegmentedBar
+                selected = chosen
+                NewTermuxSettings.setBlockDensity(context, chosen.key)
+            }
+        )
+    }
+}
+
+@Composable
+private fun InputPositionSelector(context: Context) {
+    val options = remember {
+        listOf(
+            NewTermuxSettings.INPUT_POSITION_BOTTOM to "Bottom (Default)",
+            NewTermuxSettings.INPUT_POSITION_TOP to "Top"
+        )
+    }
+    var selected by remember { mutableStateOf(NewTermuxSettings.getInputBarPosition(context)) }
+    val selectedIndex = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Text("Input Bar Position", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.size(6.dp))
+        WarpSegmentedBar(
+            items = options.map { WarpSegmentedItem(it.second) },
+            selectedIndex = selectedIndex,
+            onSelect = { index ->
+                val chosen = options.getOrNull(index)?.first ?: return@WarpSegmentedBar
+                selected = chosen
+                NewTermuxSettings.setInputBarPosition(context, chosen)
+            }
+        )
+    }
+}
+
+@Composable
+private fun UiZoomSelector(context: Context) {
+    var zoomPercent by remember { mutableStateOf(NewTermuxSettings.getUiZoomPercent(context)) }
+    val presets = remember { listOf(85, 100, 115, 130) }
+    fun updateZoom(next: Int) {
+        NewTermuxSettings.setUiZoomPercent(context, next)
+        zoomPercent = NewTermuxSettings.getUiZoomPercent(context)
+        WarpThemeState.notifyChanged()
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("UI Zoom (85%–130%)", style = MaterialTheme.typography.titleSmall)
+            Text("${zoomPercent}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.size(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            WarpChip(label = "−", onClick = { updateZoom(zoomPercent - 5) })
+            for (preset in presets) {
+                WarpChip(
+                    label = "$preset%",
+                    selected = zoomPercent == preset,
+                    onClick = { updateZoom(preset) }
+                )
+            }
+            WarpChip(label = "+", onClick = { updateZoom(zoomPercent + 5) })
+        }
     }
 }
 
@@ -513,6 +617,166 @@ private fun StartupScriptEditorDialog(context: Context, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+// ---------------------------------------------------------------- AI Assistant
+
+@Composable
+private fun AiAssistantScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(NewTermuxSettings.isAiEnabled(context)) }
+    var provider by remember { mutableStateOf(AiProviderKind.fromId(NewTermuxSettings.getAiProvider(context))) }
+    var model by remember { mutableStateOf(NewTermuxSettings.getAiModel(context)) }
+    var baseUrl by remember { mutableStateOf(NewTermuxSettings.getAiBaseUrl(context)) }
+    var maxTokens by remember { mutableStateOf(NewTermuxSettings.getAiMaxTokens(context)) }
+    var apiKeyInput by remember { mutableStateOf("") }
+    var keyHint by remember(provider) { mutableStateOf(AiKeyStore.maskedKeyHint(context, provider)) }
+
+    SettingsScaffold("AI Assistant", onBack) { mod ->
+        Column(modifier = mod) {
+            SwitchRow(
+                title = "Enable Inline AI",
+                summary = "Allows Explain error and Propose fix on command blocks. Accepted commands only pre-fill the input bar and never auto-execute.",
+                checked = enabled,
+            ) {
+                enabled = it
+                NewTermuxSettings.setAiEnabled(context, it)
+            }
+
+            HorizontalDivider()
+            CategoryHeader("Provider")
+
+            val providers = remember { AiProviderKind.entries }
+            WarpSegmentedBar(
+                items = providers.map {
+                    WarpSegmentedItem(
+                        when (it) {
+                            AiProviderKind.OPENAI_COMPATIBLE -> "OpenAI"
+                            AiProviderKind.ANTHROPIC -> "Anthropic"
+                            AiProviderKind.GEMINI -> "Gemini"
+                        }
+                    )
+                },
+                selectedIndex = providers.indexOf(provider).coerceAtLeast(0),
+                onSelect = { idx ->
+                    val chosen = providers[idx]
+                    provider = chosen
+                    NewTermuxSettings.setAiProvider(context, chosen.id)
+                    keyHint = AiKeyStore.maskedKeyHint(context, chosen)
+                },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+
+            CategoryHeader("API Key (${provider.displayName})")
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Text(
+                    text = if (keyHint.isNotEmpty()) "Status: Key saved ($keyHint)" else "Status: Offline / No API key stored",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (keyHint.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(8.dp))
+                OutlinedTextField(
+                    value = apiKeyInput,
+                    onValueChange = { apiKeyInput = it },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    label = { Text("Paste API key") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.size(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WarpChip(
+                        label = "Save Key",
+                        selected = true,
+                        onClick = {
+                            if (apiKeyInput.isNotBlank()) {
+                                AiKeyStore.setApiKey(context, provider, apiKeyInput)
+                                keyHint = AiKeyStore.maskedKeyHint(context, provider)
+                                apiKeyInput = ""
+                                Toast.makeText(context, "API key saved securely", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                    if (keyHint.isNotEmpty()) {
+                        WarpChip(
+                            label = "Clear Key",
+                            onClick = {
+                                AiKeyStore.setApiKey(context, provider, "")
+                                keyHint = ""
+                                apiKeyInput = ""
+                                Toast.makeText(context, "API key cleared", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            CategoryHeader("Model & Endpoint")
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                OutlinedTextField(
+                    value = model,
+                    onValueChange = {
+                        model = it
+                        NewTermuxSettings.setAiModel(context, it)
+                    },
+                    singleLine = true,
+                    label = { Text("Model (blank = ${provider.defaultModel})") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.size(8.dp))
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = {
+                        baseUrl = it
+                        NewTermuxSettings.setAiBaseUrl(context, it)
+                    },
+                    singleLine = true,
+                    label = { Text("Base URL (blank = ${provider.defaultBaseUrl})") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            CategoryHeader("Guardrails")
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Max Output Tokens", style = MaterialTheme.typography.titleSmall)
+                    Text("$maxTokens", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.size(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    fun updateTokens(next: Int) {
+                        NewTermuxSettings.setAiMaxTokens(context, next)
+                        maxTokens = NewTermuxSettings.getAiMaxTokens(context)
+                    }
+                    WarpChip(label = "−", onClick = { updateTokens(maxTokens - 256) })
+                    for (preset in listOf(512, 1024, 2048, 4096)) {
+                        WarpChip(
+                            label = "$preset",
+                            selected = maxTokens == preset,
+                            onClick = { updateTokens(preset) }
+                        )
+                    }
+                    WarpChip(label = "+", onClick = { updateTokens(maxTokens + 256) })
+                }
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    "0 automatic retries (manual Retry only) · max 1 concurrent request (cancels prior request on new action).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------- Text Expansion

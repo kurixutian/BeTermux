@@ -19,6 +19,44 @@ public final class TerminalBuffer {
     private int mActiveTranscriptRows = 0;
     /** The index in the circular buffer where the visible screen starts. */
     private int mScreenFirstRow = 0;
+    /**
+     * Monotonically advancing base offset mapping external rows to stable absolute row coordinates:
+     * {@code absRow = mTotalTranscriptRows + externalRow}.
+     */
+    private long mTotalTranscriptRows = 0L;
+
+    /** Mapping from pre-reflow absolute rows to post-reflow absolute row spans. */
+    public static final class ReflowMapping {
+        private final long mOldMinAbsRow;
+        private final long[] mNewStartAbsRows;
+        private final long[] mNewEndAbsRows;
+        private final long mFallbackMaxAbsRow;
+
+        ReflowMapping(long oldMinAbsRow, long[] newStartAbsRows, long[] newEndAbsRows, long fallbackMaxAbsRow) {
+            this.mOldMinAbsRow = oldMinAbsRow;
+            this.mNewStartAbsRows = newStartAbsRows;
+            this.mNewEndAbsRows = newEndAbsRows;
+            this.mFallbackMaxAbsRow = fallbackMaxAbsRow;
+        }
+
+        public long mapStart(long oldAbsRow) {
+            int len = mNewStartAbsRows.length;
+            if (len == 0) return oldAbsRow;
+            long delta = oldAbsRow - mOldMinAbsRow;
+            if (delta < 0) return mNewStartAbsRows[0];
+            if (delta >= len) return Math.max(mNewEndAbsRows[len - 1], mFallbackMaxAbsRow);
+            return mNewStartAbsRows[(int) delta];
+        }
+
+        public long mapEnd(long oldAbsRow) {
+            int len = mNewEndAbsRows.length;
+            if (len == 0) return oldAbsRow;
+            long delta = oldAbsRow - mOldMinAbsRow;
+            if (delta < 0) return mNewEndAbsRows[0];
+            if (delta >= len) return Math.max(mNewEndAbsRows[len - 1], mFallbackMaxAbsRow);
+            return mNewEndAbsRows[(int) delta];
+        }
+    }
 
     /**
      * Create a transcript screen.
@@ -73,7 +111,7 @@ public final class TerminalBuffer {
             } else {
                 x2 = columns;
             }
-            TerminalRow lineObject = mLines[externalToInternalRow(row)];
+            TerminalRow lineObject = allocateFullLineIfNecessary(externalToInternalRow(row));
             int x1Index = lineObject.findStartOfColumn(x1);
             int x2Index = (x2 < mColumns) ? lineObject.findStartOfColumn(x2) : lineObject.getSpaceUsed();
             if (x2Index == x1Index) {
@@ -152,6 +190,52 @@ public final class TerminalBuffer {
         return mActiveTranscriptRows + mScreenRows;
     }
 
+    public long getTotalTranscriptRows() {
+        return mTotalTranscriptRows;
+    }
+
+    public long getOldestRetainedAbsoluteRow() {
+        return mTotalTranscriptRows - mActiveTranscriptRows;
+    }
+
+    public long getScreenEndAbsoluteRowExclusive() {
+        return mTotalTranscriptRows + mScreenRows;
+    }
+
+    /**
+     * Returns the {@link TerminalRow} at an absolute coordinate, or {@code null} if the row
+     * has already been overwritten by scrollback wraparound or has not been created yet.
+     */
+    public TerminalRow getRowAtAbsolute(long absRow) {
+        long minAbs = getOldestRetainedAbsoluteRow();
+        long maxAbsExcl = getScreenEndAbsoluteRowExclusive();
+        if (absRow < minAbs || absRow >= maxAbsExcl) {
+            return null;
+        }
+        int externalRow = (int) (absRow - mTotalTranscriptRows);
+        return allocateFullLineIfNecessary(externalToInternalRow(externalRow));
+    }
+
+    /**
+     * Extract text across an inclusive range of absolute row coordinates, joining hard-wrapped
+     * lines while preserving explicit line breaks.
+     */
+    public String getSelectedTextAbsolute(long startAbsRow, long endAbsRowInclusive) {
+        return getSelectedTextAbsolute(startAbsRow, endAbsRowInclusive, true, false);
+    }
+
+    public String getSelectedTextAbsolute(long startAbsRow, long endAbsRowInclusive, boolean joinBackLines, boolean joinFullLines) {
+        long minAbs = getOldestRetainedAbsoluteRow();
+        long maxAbsIncl = getScreenEndAbsoluteRowExclusive() - 1;
+        if (endAbsRowInclusive < minAbs || startAbsRow > maxAbsIncl || endAbsRowInclusive < startAbsRow) {
+            return "";
+        }
+        int extY1 = (int) Math.max(-mActiveTranscriptRows, startAbsRow - mTotalTranscriptRows);
+        int extY2 = (int) Math.min(mScreenRows - 1, endAbsRowInclusive - mTotalTranscriptRows);
+        if (extY2 < extY1) return "";
+        return getSelectedText(0, extY1, mColumns, extY2, joinBackLines, joinFullLines);
+    }
+
     /**
      * Convert a row value from the public external coordinate system to our internal private coordinate system.
      *
@@ -201,6 +285,15 @@ public final class TerminalBuffer {
      * @param cursor     An int[2] containing the (column, row) cursor location.
      */
     public void resize(int newColumns, int newRows, int newTotalRows, int[] cursor, long currentStyle, boolean altScreen) {
+        resizeAndMap(newColumns, newRows, newTotalRows, cursor, currentStyle, altScreen);
+    }
+
+    /**
+     * Resize the screen and return an optional {@link ReflowMapping} when column reflow occurred
+     * so callers tracking absolute row coordinates (e.g. command blocks) can remap markers without data loss.
+     */
+    public ReflowMapping resizeAndMap(int newColumns, int newRows, int newTotalRows, int[] cursor, long currentStyle, boolean altScreen) {
+        ReflowMapping mapping = null;
         // newRows > mTotalRows should not normally happen since mTotalRows is TRANSCRIPT_ROWS (10000):
         if (newColumns == mColumns && newRows <= mTotalRows) {
             // Fast resize where just the rows changed.
@@ -226,6 +319,7 @@ public final class TerminalBuffer {
             }
             mScreenFirstRow += shiftDownOfTopRow;
             mScreenFirstRow = (mScreenFirstRow < 0) ? (mScreenFirstRow + mTotalRows) : (mScreenFirstRow % mTotalRows);
+            mTotalTranscriptRows = Math.max(0L, mTotalTranscriptRows + shiftDownOfTopRow);
             mTotalRows = newTotalRows;
             mActiveTranscriptRows = altScreen ? 0 : Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow);
             cursor[1] -= shiftDownOfTopRow;
@@ -241,9 +335,21 @@ public final class TerminalBuffer {
             final int oldScreenFirstRow = mScreenFirstRow;
             final int oldScreenRows = mScreenRows;
             final int oldTotalRows = mTotalRows;
+            final long oldTotalTranscriptRows = mTotalTranscriptRows;
+            final long oldMinAbsRow = oldTotalTranscriptRows - oldActiveTranscriptRows;
+            final int oldCount = Math.max(0, oldActiveTranscriptRows + oldScreenRows);
+            final long[] mappedStart = altScreen ? null : new long[oldCount];
+            final long[] mappedEnd = altScreen ? null : new long[oldCount];
+            if (mappedStart != null) {
+                Arrays.fill(mappedStart, -1L);
+                Arrays.fill(mappedEnd, -1L);
+            }
+            int firstSkippedOldIdx = -1;
+
             mTotalRows = newTotalRows;
             mScreenRows = newRows;
             mActiveTranscriptRows = mScreenFirstRow = 0;
+            mTotalTranscriptRows = 0L;
             mColumns = newColumns;
 
             int newCursorRow = -1;
@@ -260,6 +366,7 @@ public final class TerminalBuffer {
             // keep track how many blank lines we have skipped if we later on find a non-blank line.
             int skippedBlankLines = 0;
             for (int externalOldRow = -oldActiveTranscriptRows; externalOldRow < oldScreenRows; externalOldRow++) {
+                final int oldIdx = externalOldRow + oldActiveTranscriptRows;
                 // Do what externalToInternalRow() does but for the old state:
                 int internalOldRow = oldScreenFirstRow + externalOldRow;
                 internalOldRow = (internalOldRow < 0) ? (oldTotalRows + internalOldRow) : (internalOldRow % oldTotalRows);
@@ -268,11 +375,17 @@ public final class TerminalBuffer {
                 boolean cursorAtThisRow = externalOldRow == oldCursorRow;
                 // The cursor may only be on a non-null line, which we should not skip:
                 if (oldLine == null || (!(!newCursorPlaced && cursorAtThisRow)) && oldLine.isBlank()) {
+                    if (firstSkippedOldIdx == -1) firstSkippedOldIdx = oldIdx;
                     skippedBlankLines++;
                     continue;
                 } else if (skippedBlankLines > 0) {
                     // After skipping some blank lines we encounter a non-blank line. Insert the skipped blank lines.
                     for (int i = 0; i < skippedBlankLines; i++) {
+                        if (mappedStart != null && firstSkippedOldIdx >= 0 && firstSkippedOldIdx + i < oldCount) {
+                            long blankAbs = mTotalTranscriptRows + currentOutputExternalRow;
+                            mappedStart[firstSkippedOldIdx + i] = blankAbs;
+                            mappedEnd[firstSkippedOldIdx + i] = blankAbs;
+                        }
                         if (currentOutputExternalRow == mScreenRows - 1) {
                             scrollDownOneLine(0, mScreenRows, currentStyle);
                         } else {
@@ -281,8 +394,10 @@ public final class TerminalBuffer {
                         currentOutputExternalColumn = 0;
                     }
                     skippedBlankLines = 0;
+                    firstSkippedOldIdx = -1;
                 }
 
+                final long rowStartAbs = mTotalTranscriptRows + currentOutputExternalRow;
                 int lastNonSpaceIndex = 0;
                 boolean justToCursor = false;
                 if (cursorAtThisRow || oldLine.mLineWrap) {
@@ -333,6 +448,11 @@ public final class TerminalBuffer {
                         if (justToCursor && newCursorPlaced) break;
                     }
                 }
+                final long rowEndAbs = mTotalTranscriptRows + currentOutputExternalRow;
+                if (mappedStart != null && oldIdx >= 0 && oldIdx < oldCount) {
+                    mappedStart[oldIdx] = rowStartAbs;
+                    mappedEnd[oldIdx] = rowEndAbs;
+                }
                 // Old row has been copied. Check if we need to insert newline if old line was not wrapping:
                 if (externalOldRow != (oldScreenRows - 1) && !oldLine.mLineWrap) {
                     if (currentOutputExternalRow == mScreenRows - 1) {
@@ -345,12 +465,26 @@ public final class TerminalBuffer {
                 }
             }
 
+            if (mappedStart != null && oldCount > 0) {
+                long lastValid = mTotalTranscriptRows + currentOutputExternalRow;
+                for (int i = 0; i < oldCount; i++) {
+                    if (mappedStart[i] < 0) {
+                        long clamped = Math.min(mTotalTranscriptRows + mScreenRows - 1, (i > 0) ? mappedEnd[i - 1] + 1 : 0);
+                        mappedStart[i] = clamped;
+                        mappedEnd[i] = clamped;
+                    }
+                    lastValid = mappedEnd[i];
+                }
+                mapping = new ReflowMapping(oldMinAbsRow, mappedStart, mappedEnd, lastValid);
+            }
+
             cursor[0] = newCursorColumn;
             cursor[1] = newCursorRow;
         }
 
         // Handle cursor scrolling off screen:
         if (cursor[0] < 0 || cursor[1] < 0) cursor[0] = cursor[1] = 0;
+        return mapping;
     }
 
     /**
@@ -393,6 +527,7 @@ public final class TerminalBuffer {
 
         // Update the screen location in the ring buffer:
         mScreenFirstRow = (mScreenFirstRow + 1) % mTotalRows;
+        mTotalTranscriptRows++;
         // Note that the history has grown if not already full:
         if (mActiveTranscriptRows < mTotalRows - mScreenRows) mActiveTranscriptRows++;
 

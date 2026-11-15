@@ -55,6 +55,11 @@ public final class TerminalView extends View {
 
     public TerminalRenderer mRenderer;
 
+    @Nullable
+    public TerminalRowPainter getRowPainter() {
+        return mRenderer != null ? mRenderer.getRowPainter() : null;
+    }
+
     public TerminalViewClient mClient;
 
     private TextSelectionCursorController mTextSelectionCursorController;

@@ -22,6 +22,9 @@ public abstract class TerminalTestCase extends TestCase {
 		public final List<String> clipboardPuts = new ArrayList<>();
 		public int bellsRung = 0;
 		public int colorsChanged = 0;
+		public final List<Osc133Event> osc133Events = new ArrayList<>();
+		public final List<String> osc7Cwds = new ArrayList<>();
+		public TerminalBuffer.ReflowMapping lastReflowMapping = null;
 
 		@Override
 		public void write(byte[] data, int offset, int count) {
@@ -56,6 +59,21 @@ public abstract class TerminalTestCase extends TestCase {
 		@Override
 		public void onColorsChanged() {
 			colorsChanged++;
+		}
+
+		@Override
+		public void onOsc133Event(Osc133Event event) {
+			osc133Events.add(event);
+		}
+
+		@Override
+		public void onOsc7CwdChanged(String cwd) {
+			osc7Cwds.add(cwd);
+		}
+
+		@Override
+		public void onMainBufferReflowed(TerminalBuffer.ReflowMapping mapping) {
+			lastReflowMapping = mapping;
 		}
 	}
 

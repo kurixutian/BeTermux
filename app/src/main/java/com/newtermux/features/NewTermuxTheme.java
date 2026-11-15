@@ -10,22 +10,22 @@ public class NewTermuxTheme {
 
     private static final String PREFS_NAME = "newtermux_theme";
     private static final String KEY_ACCENT_COLOR = "accent_color";
-    public static final int DEFAULT_COLOR = 0xFFBB86FC; // Purple
+    public static final int DEFAULT_COLOR = 0xFFD49B54; // Warm Sand (Warm Dark default)
 
     public static final int[] COLORS = {
-        0xFFBB86FC, // Purple
-        0xFF2196F3, // Blue
+        0xFFD49B54, // Warm Sand
+        0xFF268BD2, // Solarized Blue
+        0xFF66B2FF, // High Contrast Blue
         0xFF4CAF50, // Green
         0xFFFF9800, // Orange
         0xFFF44336, // Red
         0xFF00BCD4, // Teal
-        0xFFE91E63, // Pink
         0xFFFFC107, // Gold
-        0xFFFFFFFF, // White
+        0xFFFAF9F6, // Off-White
     };
 
     public static final String[] COLOR_NAMES = {
-        "Purple", "Blue", "Green", "Orange", "Red", "Teal", "Pink", "Gold", "White"
+        "Warm Sand", "Solarized Blue", "Sky Blue", "Green", "Orange", "Red", "Teal", "Gold", "Off-White"
     };
 
     public static int getAccentColor(Context context) {
@@ -36,6 +36,7 @@ public class NewTermuxTheme {
     public static void setAccentColor(Context context, int color) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putInt(KEY_ACCENT_COLOR, color).apply();
+        com.newtermux.compose.WarpThemeState.notifyChanged();
     }
 
     public static String getColorName(int color) {

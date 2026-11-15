@@ -6,15 +6,26 @@
     android:orientation="vertical"
     android:background="@color/nt_toolbar_bg">
 
-    <!-- Clean Liquid Glass header: brand identity + high-frequency icon controls -->
+    <!-- Clean Warp header: brand identity + high-frequency icon controls -->
     <LinearLayout
         android:id="@+id/newtermux_toolbar_row"
         android:layout_width="match_parent"
         android:layout_height="46dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="10dp"
+        android:paddingStart="6dp"
         android:paddingEnd="6dp">
+
+        <ImageButton
+            android:id="@+id/btn_tab_drawer"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginEnd="4dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Open workspace session drawer"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_tab_drawer" />
 
         <ImageView
             android:id="@+id/iv_app_logo"

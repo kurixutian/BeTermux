@@ -28,6 +28,12 @@ public interface TerminalSessionClient {
 
     void setTerminalShellPid(@NonNull TerminalSession session, int pid);
 
+    default void onOsc133Event(@NonNull TerminalSession session, @NonNull Osc133Event event) {}
+
+    default void onOsc7CwdChanged(@NonNull TerminalSession session, @NonNull String cwd) {}
+
+    default void onMainBufferReflowed(@NonNull TerminalSession session, @NonNull TerminalBuffer.ReflowMapping mapping) {}
+
 
 
     Integer getTerminalCursorStyle();

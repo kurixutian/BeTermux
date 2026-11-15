@@ -1,58 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- BeTermux Modern Warp-Inspired Palette -->
-    <!-- Primary brand / Accent (Electric Violet / Warp Purple) -->
-    <color name="nt_primary">#8B5CF6</color>
-    <color name="nt_primary_variant">#7C3AED</color>
-    <color name="nt_secondary">#06B6D4</color>
-    <color name="nt_secondary_variant">#0891B2</color>
+    <!-- Primary Accent (Warm Dark default: Warm Sand; overridable in Theme Picker) -->
+    <color name="nt_primary">#D49B54</color>
+    <color name="nt_primary_variant">#B8803B</color>
+    <color name="nt_secondary">#6BA6E8</color>
+    <color name="nt_secondary_variant">#4E86C6</color>
 
-    <!-- Backgrounds (Deep Obsidian Liquid Glass) -->
-    <color name="nt_background">#0D1117</color>
-    <color name="nt_surface">#161B22</color>
-    <color name="nt_surface_variant">#1F2630</color>
-    <!-- Popup / pop-out menu styling -->
-    <color name="nt_menu_outline">#33FFFFFF</color>
-    <color name="nt_menu_divider">#1FFFFFFF</color>
-    <color name="nt_card_background">#CC161B22</color>
+    <!-- Backgrounds (Warm Charcoal) -->
+    <color name="nt_background">#121210</color>
+    <color name="nt_surface">#1A1917</color>
+    <color name="nt_surface_variant">#22201D</color>
 
-    <!-- On colors -->
-    <color name="nt_on_primary">#FFFFFF</color>
-    <color name="nt_on_secondary">#000000</color>
-    <color name="nt_on_background">#E6EDF3</color>
-    <color name="nt_on_surface">#E6EDF3</color>
+    <!-- Hairline structural chrome -->
+    <color name="nt_menu_outline">#423E38</color>
+    <color name="nt_menu_divider">#2D2B27</color>
+    <color name="nt_card_background">#1A1917</color>
 
-    <!-- Accent / status -->
-    <color name="nt_error">#F85149</color>
-    <color name="nt_success">#3FB950</color>
-    <color name="nt_warning">#D29922</color>
-    <color name="nt_info">#58A6FF</color>
+    <!-- Text Colors -->
+    <color name="nt_on_primary">#121210</color>
+    <color name="nt_on_secondary">#121210</color>
+    <color name="nt_on_background">#FAF9F6</color>
+    <color name="nt_on_surface">#FAF9F6</color>
 
-    <!-- Terminal specific -->
-    <color name="nt_terminal_bg">#0D1117</color>
-    <color name="nt_terminal_fg">#E6EDF3</color>
-    <color name="nt_terminal_cursor">#8B5CF6</color>
-    <color name="nt_terminal_selection">#38275C</color>
+    <!-- Semantic Status -->
+    <color name="nt_error">#E56B5E</color>
+    <color name="nt_success">#5FB878</color>
+    <color name="nt_warning">#E0A94F</color>
+    <color name="nt_info">#6BA6E8</color>
 
-    <!-- Session tab bar -->
-    <color name="nt_tab_active">#8B5CF6</color>
-    <color name="nt_tab_inactive">#484F58</color>
-    <color name="nt_tab_bg">#EB0B0F17</color>
+    <!-- Terminal Surface -->
+    <color name="nt_terminal_bg">#121210</color>
+    <color name="nt_terminal_fg">#FAF9F6</color>
+    <color name="nt_terminal_cursor">#D49B54</color>
+    <color name="nt_terminal_selection">#382D1F</color>
+
+    <!-- Tabs -->
+    <color name="nt_tab_active">#D49B54</color>
+    <color name="nt_tab_inactive">#8C877E</color>
+    <color name="nt_tab_bg">#1A1917</color>
 
     <!-- Toolbar -->
-    <color name="nt_toolbar_bg">#E6111620</color>
-    <color name="nt_toolbar_icon">#E6EDF3</color>
-    <color name="nt_toolbar_text">#F0F6FC</color>
+    <color name="nt_toolbar_bg">#1A1917</color>
+    <color name="nt_toolbar_icon">#FAF9F6</color>
+    <color name="nt_toolbar_text">#FAF9F6</color>
 
-    <!-- Root indicator -->
-    <color name="nt_root_active">#F85149</color>
-    <color name="nt_root_inactive">#484F58</color>
+    <!-- Root Indicator -->
+    <color name="nt_root_active">#E56B5E</color>
+    <color name="nt_root_inactive">#8C877E</color>
 
-    <!-- STT indicator -->
-    <color name="nt_stt_listening">#F85149</color>
-    <color name="nt_stt_idle">#8B5CF6</color>
+    <!-- STT Status -->
+    <color name="nt_stt_listening">#E56B5E</color>
+    <color name="nt_stt_idle">#D49B54</color>
 
-    <!-- Divider / border -->
-    <color name="nt_divider">#1FFFFFFF</color>
-    <color name="nt_border">#2EFFFFFF</color>
+    <!-- Dividers & Borders -->
+    <color name="nt_divider">#2D2B27</color>
+    <color name="nt_border">#2D2B27</color>
 </resources>

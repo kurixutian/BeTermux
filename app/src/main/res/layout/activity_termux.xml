@@ -10,6 +10,12 @@
     <include layout="@layout/newtermux_toolbar" />
     <include layout="@layout/newtermux_autocorrect_bar" />
 
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/input_bar_top_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
     <RelativeLayout
         android:id="@+id/activity_termux_root_relative_layout"
         android:layout_width="match_parent"
@@ -28,6 +34,20 @@
             android:clickable="false"
             android:focusable="false">
 
+            <ImageView
+                android:id="@+id/terminal_bg_image"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:importantForAccessibility="no"
+                android:visibility="gone" />
+
+            <View
+                android:id="@+id/terminal_bg_scrim"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+
             <com.termux.view.TerminalView
                 android:id="@+id/terminal_view"
                 android:layout_width="match_parent"
@@ -38,6 +58,12 @@
                 android:scrollbarThumbVertical="@drawable/terminal_scroll_shape"
                 android:scrollbars="vertical"
                 tools:ignore="UnusedAttribute" />
+
+            <androidx.compose.ui.platform.ComposeView
+                android:id="@+id/block_workspace_container"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
 
         </FrameLayout>
 
@@ -73,7 +99,21 @@
             android:background="@color/nt_tab_bg"
             android:layout_alignParentBottom="true" />
 
+        <androidx.compose.ui.platform.ComposeView
+            android:id="@+id/floating_edit_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_alignParentTop="true"
+            android:layout_above="@+id/terminal_toolbar_view_pager"
+            android:visibility="gone" />
+
     </RelativeLayout>
+
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/input_bar_bottom_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
 
     <include layout="@layout/newtermux_status_line" />
 

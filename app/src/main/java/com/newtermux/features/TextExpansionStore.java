@@ -2,6 +2,7 @@ package com.newtermux.features;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
@@ -33,8 +34,10 @@ public class TextExpansionStore {
                 te.expansion = obj.optString("expansion", "");
                 if (!te.trigger.isEmpty()) list.add(te);
             }
-        } catch (Exception ignored) {}
-        sCache = list;
+            sCache = list;
+        } catch (Exception e) {
+            Log.e("TextExpansionStore", "Failed to load text expansions", e);
+        }
         return list;
     }
 
@@ -49,7 +52,9 @@ public class TextExpansionStore {
             }
             prefs(ctx).edit().putString("text_expansions_json", arr.toString()).apply();
             sCache = null; // invalidate cache so next load picks up the new data
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.e("TextExpansionStore", "Failed to save text expansions", e);
+        }
     }
 
     public static String findExpansion(Context ctx, String trigger) {

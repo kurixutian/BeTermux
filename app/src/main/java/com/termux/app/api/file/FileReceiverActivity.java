@@ -7,9 +7,15 @@ import android.net.Uri;
 import android.provider.OpenableColumns;
 import android.util.Patterns;
 
+import android.widget.Toast;
+
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.newtermux.workflows.Workflow;
+import com.newtermux.workflows.WorkflowRepository;
+import com.newtermux.workflows.WorkflowShareHelper;
 import com.termux.R;
 import com.termux.shared.android.PackageUtils;
 import com.termux.shared.data.DataUtils;
@@ -33,7 +39,9 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 public class FileReceiverActivity extends AppCompatActivity {
@@ -86,8 +94,15 @@ public class FileReceiverActivity extends AppCompatActivity {
                 } else {
                     String subject = IntentUtils.getStringExtraIfSet(intent, Intent.EXTRA_SUBJECT, null);
                     if (subject == null) subject = sharedTitle;
-                    if (subject != null) subject += ".txt";
-                    promptNameAndSave(new ByteArrayInputStream(sharedText.getBytes(StandardCharsets.UTF_8)), subject);
+                    byte[] textBytes = sharedText.getBytes(StandardCharsets.UTF_8);
+                    Workflow detected = WorkflowShareHelper.inspectIncomingBytes(textBytes, subject, type);
+                    if (detected != null) {
+                        String fallbackName = subject != null ? (subject.endsWith(".md") ? subject : subject + ".md") : (detected.getId() + ".md");
+                        promptWorkflowImportOrSave(detected, new ByteArrayInputStream(textBytes), fallbackName);
+                    } else {
+                        if (subject != null) subject += ".txt";
+                        promptNameAndSave(new ByteArrayInputStream(textBytes), subject);
+                    }
                 }
             } else {
                 showErrorDialogAndQuit("Send action without content - nothing to save.");
@@ -115,7 +130,7 @@ public class FileReceiverActivity extends AppCompatActivity {
                 File file = new File(path);
                 try {
                     FileInputStream in = new FileInputStream(file);
-                    promptNameAndSave(in, file.getName());
+                    handleIncomingStreamWithWorkflowCheck(in, file.getName(), type);
                 } catch (FileNotFoundException e) {
                     showErrorDialogAndQuit("Cannot open file: " + e.getMessage() + ".");
                 }
@@ -151,11 +166,89 @@ public class FileReceiverActivity extends AppCompatActivity {
             if (attachmentFileName == null) attachmentFileName = subjectFromIntent;
             if (attachmentFileName == null) attachmentFileName = UriUtils.getUriFileBasename(uri, true);
 
+            String resolvedMime = getContentResolver().getType(uri);
+            if (resolvedMime == null) resolvedMime = getIntent().getType();
+
             InputStream in = getContentResolver().openInputStream(uri);
-            promptNameAndSave(in, attachmentFileName);
+            handleIncomingStreamWithWorkflowCheck(in, attachmentFileName, resolvedMime);
         } catch (Exception e) {
             showErrorDialogAndQuit("Unable to handle shared content:\n\n" + e.getMessage());
             Logger.logStackTraceWithMessage(LOG_TAG, "handleContentUri(uri=" + uri + ") failed", e);
+        }
+    }
+
+    private void handleIncomingStreamWithWorkflowCheck(final InputStream in, final String fileName, final String mimeType) {
+        if (in == null) {
+            showErrorDialogAndQuit("Unable to open shared content stream.");
+            return;
+        }
+        if (!shouldInspectStreamForWorkflow(fileName, mimeType)) {
+            promptNameAndSave(in, fileName);
+            return;
+        }
+        try {
+            byte[] headBytes = WorkflowShareHelper.readBoundedBytes(in);
+            InputStream replayStream = new SequenceInputStream(new ByteArrayInputStream(headBytes), in);
+            Workflow detected = WorkflowShareHelper.inspectIncomingBytes(headBytes, fileName, mimeType);
+            if (detected != null) {
+                String fallbackName = !DataUtils.isNullOrEmpty(fileName)
+                    ? fileName
+                    : (detected.getId() + ".md");
+                promptWorkflowImportOrSave(detected, replayStream, fallbackName);
+            } else {
+                promptNameAndSave(replayStream, fileName);
+            }
+        } catch (Exception e) {
+            Logger.logStackTraceWithMessage(LOG_TAG, "Workflow inspection failed, falling back to file save", e);
+            promptNameAndSave(in, fileName);
+        }
+    }
+
+    private static boolean shouldInspectStreamForWorkflow(String fileName, String mimeType) {
+        String lowerName = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        String lowerMime = mimeType == null ? "" : mimeType.toLowerCase(Locale.ROOT);
+        return lowerName.endsWith(".md")
+            || lowerName.endsWith(".markdown")
+            || lowerMime.contains("markdown")
+            || lowerMime.startsWith("text/");
+    }
+
+    private void promptWorkflowImportOrSave(final Workflow workflow, final InputStream fallbackStream, final String fallbackName) {
+        String cmdPreview = workflow.getCommandTemplate();
+        if (cmdPreview.length() > 160) {
+            cmdPreview = cmdPreview.substring(0, 157) + "...";
+        }
+        String message = workflow.getName() + "\n\n" + cmdPreview;
+        mFinishOnDismissNameDialog = false;
+        new AlertDialog.Builder(this)
+            .setTitle("Import Workflow")
+            .setMessage(message)
+            .setPositiveButton("Import Workflow", (dialog, which) -> {
+                closeQuietly(fallbackStream);
+                Workflow saved = new WorkflowRepository(this).saveWorkflow(workflow);
+                Toast.makeText(this, "Imported workflow: " + saved.getName(), Toast.LENGTH_SHORT).show();
+                finish();
+            })
+            .setNegativeButton("Save as File", (dialog, which) -> {
+                mFinishOnDismissNameDialog = true;
+                promptNameAndSave(fallbackStream, fallbackName);
+            })
+            .setNeutralButton(android.R.string.cancel, (dialog, which) -> {
+                closeQuietly(fallbackStream);
+                finish();
+            })
+            .setOnCancelListener(dialog -> {
+                closeQuietly(fallbackStream);
+                finish();
+            })
+            .show();
+    }
+
+    private static void closeQuietly(InputStream in) {
+        if (in == null) return;
+        try {
+            in.close();
+        } catch (IOException ignored) {
         }
     }
 

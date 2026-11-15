@@ -29,4 +29,13 @@ public abstract class TerminalOutput {
 
     public abstract void onColorsChanged();
 
+    /** Notify client of OSC 133 shell integration marker (override if supported). */
+    public void onOsc133Event(Osc133Event event) {}
+
+    /** Notify client of OSC 7 current working directory change (override if supported). */
+    public void onOsc7CwdChanged(String cwd) {}
+
+    /** Notify client that the main buffer reflowed across columns (override if supported). */
+    public void onMainBufferReflowed(TerminalBuffer.ReflowMapping mapping) {}
+
 }

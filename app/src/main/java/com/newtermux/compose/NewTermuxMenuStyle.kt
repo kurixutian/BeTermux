@@ -2,27 +2,30 @@ package com.newtermux.compose
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.newtermux.glass.GlassTokens
-import com.newtermux.glass.glassSurface
+import com.newtermux.theme.LocalWarpPalette
+import com.newtermux.theme.warpSurface
 
 /**
- * Shared Liquid Glass card look for pop-out menus across BeTermux.
+ * Shared Warp card look for pop-out menus across BeTermux: flat surface
+ * with crisp 1dp structural border and zero glass/blur.
  */
 @Composable
-fun Modifier.outlinedMenuCard(): Modifier =
-    this.glassSurface(
-        shape = RoundedCornerShape(14.dp),
-        elevation = 8.dp,
-        tint = GlassTokens.GLASS_TINT.copy(alpha = 0.82f),
-        sampleBackdrop = false,
+fun Modifier.outlinedMenuCard(): Modifier {
+    val palette = LocalWarpPalette.current
+    return this.warpSurface(
+        shape = RoundedCornerShape(10.dp),
+        color = palette.surfaceElevated,
+        borderColor = palette.borderStrong,
+        borderWidth = 1.dp,
     )
+}
 
-/** The thin separator that sits between options inside a glass menu card / option list. */
+/** Crisp 1dp hairline divider between menu items. */
 @Composable
 fun MenuItemDivider() {
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    val palette = LocalWarpPalette.current
+    HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
 }

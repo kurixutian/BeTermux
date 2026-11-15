@@ -269,6 +269,9 @@ public final class TerminalEmulator {
     private final byte[] mUtf8InputBuffer = new byte[4];
     private int mLastEmittedCodePoint = -1;
 
+    /** Current working directory reported via OSC 7, or null if not yet reported. */
+    private String mCurrentWorkingDirectory;
+
     public final TerminalColors mColors = new TerminalColors();
 
     private static final String LOG_TAG = "TerminalEmulator";
@@ -348,8 +351,28 @@ public final class TerminalEmulator {
         return mScreen;
     }
 
+    public TerminalBuffer getMainBuffer() {
+        return mMainBuffer;
+    }
+
     public boolean isAlternateBufferActive() {
         return mScreen == mAltBuffer;
+    }
+
+    public long getTotalTranscriptRows() {
+        return mMainBuffer.getTotalTranscriptRows();
+    }
+
+    public long getOldestRetainedAbsoluteRow() {
+        return mMainBuffer.getOldestRetainedAbsoluteRow();
+    }
+
+    public long getCursorAbsoluteRow() {
+        return isAlternateBufferActive() ? -1L : (mMainBuffer.getTotalTranscriptRows() + mCursorRow);
+    }
+
+    public String getCurrentWorkingDirectory() {
+        return mCurrentWorkingDirectory;
     }
 
     private int getTerminalTranscriptRows(Integer transcriptRows) {
@@ -416,9 +439,18 @@ public final class TerminalEmulator {
     private void resizeScreen() {
         final int[] cursor = {mCursorCol, mCursorRow};
         int newTotalRows = (mScreen == mAltBuffer) ? mRows : mMainBuffer.mTotalRows;
-        mScreen.resize(mColumns, mRows, newTotalRows, cursor, getStyle(), isAlternateBufferActive());
-        mCursorCol = cursor[0];
-        mCursorRow = cursor[1];
+        if (mScreen == mMainBuffer) {
+            TerminalBuffer.ReflowMapping mapping = mMainBuffer.resizeAndMap(mColumns, mRows, newTotalRows, cursor, getStyle(), false);
+            mCursorCol = cursor[0];
+            mCursorRow = cursor[1];
+            if (mapping != null) {
+                mSession.onMainBufferReflowed(mapping);
+            }
+        } else {
+            mScreen.resize(mColumns, mRows, newTotalRows, cursor, getStyle(), true);
+            mCursorCol = cursor[0];
+            mCursorRow = cursor[1];
+        }
     }
 
     public int getCursorRow() {
@@ -2148,11 +2180,92 @@ public final class TerminalEmulator {
                 break;
             case 119: // Reset highlight color.
                 break;
+            case 7: // OSC 7 ; file://host/path -> Current working directory.
+                if (textParameter.startsWith("file://")) {
+                    int pathStart = textParameter.indexOf('/', 7);
+                    if (pathStart >= 0) {
+                        String cwd = percentDecodeUtf8(textParameter.substring(pathStart));
+                        if (!cwd.isEmpty()) {
+                            mCurrentWorkingDirectory = cwd;
+                            mSession.onOsc7CwdChanged(cwd);
+                        }
+                    }
+                }
+                break;
+            case 133: // OSC 133 ; A|B|C|D ... -> FinalTerm / shell integration markers.
+                handleOsc133(textParameter);
+                break;
             default:
                 unknownParameter(value);
                 break;
         }
         finishSequence();
+    }
+
+    private void handleOsc133(String param) {
+        if (param == null || param.isEmpty()) return;
+        String[] parts = param.split(";");
+        if (parts.length == 0 || parts[0].isEmpty()) return;
+
+        final int type;
+        switch (parts[0].charAt(0)) {
+            case 'A':
+                type = Osc133Event.TYPE_PROMPT_START;
+                break;
+            case 'B':
+                type = Osc133Event.TYPE_COMMAND_START;
+                break;
+            case 'C':
+                type = Osc133Event.TYPE_COMMAND_EXECUTED;
+                break;
+            case 'D':
+                type = Osc133Event.TYPE_COMMAND_FINISHED;
+                break;
+            default:
+                return;
+        }
+
+        Integer exitCode = null;
+        String commandLine = null;
+        for (int i = 1; i < parts.length; i++) {
+            String part = parts[i];
+            if (part.isEmpty()) continue;
+            if (i == 1 && type == Osc133Event.TYPE_COMMAND_FINISHED && !part.contains("=")) {
+                try {
+                    exitCode = Integer.parseInt(part);
+                } catch (NumberFormatException ignored) {
+                }
+            } else if (part.startsWith("cmdline_url=")) {
+                commandLine = percentDecodeUtf8(part.substring(12));
+            } else if (part.startsWith("cmdline=")) {
+                commandLine = part.substring(8);
+            }
+        }
+
+        if (!isAlternateBufferActive()) {
+            long absRow = mMainBuffer.getTotalTranscriptRows() + mCursorRow;
+            mSession.onOsc133Event(new Osc133Event(type, exitCode, commandLine, absRow, mCursorCol, System.currentTimeMillis()));
+        }
+    }
+
+    private static String percentDecodeUtf8(String encoded) {
+        if (encoded == null || encoded.indexOf('%') < 0) return encoded == null ? "" : encoded;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(encoded.length());
+        for (int i = 0; i < encoded.length(); i++) {
+            char c = encoded.charAt(i);
+            if (c == '%' && i + 2 < encoded.length()) {
+                int hi = Character.digit(encoded.charAt(i + 1), 16);
+                int lo = Character.digit(encoded.charAt(i + 2), 16);
+                if (hi >= 0 && lo >= 0) {
+                    out.write((hi << 4) | lo);
+                    i += 2;
+                    continue;
+                }
+            }
+            byte[] utf8 = String.valueOf(c).getBytes(StandardCharsets.UTF_8);
+            out.write(utf8, 0, utf8.length);
+        }
+        return new String(out.toByteArray(), StandardCharsets.UTF_8);
     }
 
     private void blockClear(int sx, int sy, int w) {

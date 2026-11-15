@@ -85,10 +85,12 @@ import android.Manifest;
 import android.content.pm.PackageManager;
 
 import com.newtermux.features.AutoCorrectHandler;
+import com.newtermux.features.NewTermuxColorTheme;
 import com.newtermux.features.NewTermuxSettings;
 import com.newtermux.features.NewTermuxTheme;
 import com.newtermux.features.RootToggleManager;
 import com.newtermux.features.SpeechInputManager;
+import com.newtermux.theme.BackgroundImageStore;
 import com.termux.app.terminal.MiniTerminalPipView;
 
 import java.io.BufferedReader;
@@ -126,6 +128,13 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
      * The {@link TerminalView} shown in  {@link TermuxActivity} that displays the terminal.
      */
     TerminalView mTerminalView;
+
+    @Nullable
+    private com.newtermux.blocks.BlockHostBridge mBlockHostBridge;
+    private com.newtermux.input.InputHostBridge mInputHostBridge;
+    private com.newtermux.workspace.WorkspaceHostBridge mWorkspaceHostBridge;
+    private com.newtermux.workflows.WorkflowHostBridge mWorkflowHostBridge;
+    private com.newtermux.ai.AiHostBridge mAiHostBridge;
 
     /**
      *  The {@link TerminalViewClient} interface implementation to allow for communication between
@@ -402,6 +411,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_termux);
+        refreshTerminalBackground();
 
         // Load termux shared preferences
         // This will also fail if TermuxConstants.TERMUX_PACKAGE_NAME does not equal applicationId
@@ -601,7 +611,20 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         mIsOnResumeAfterOnCreate = false;
         applyAccentColor();
+        refreshTerminalBackground();
         applyFeatureSettings();
+        if (mBlockHostBridge != null) {
+            mBlockHostBridge.refreshSettings();
+        }
+        if (mInputHostBridge != null) {
+            mInputHostBridge.refreshSettings();
+        }
+        if (mWorkspaceHostBridge != null) {
+            mWorkspaceHostBridge.refreshSettings();
+        }
+        if (mWorkflowHostBridge != null) {
+            mWorkflowHostBridge.getRepository().reload();
+        }
         DeckBridge.setActivity(this);
         applyLayoutMode(getResources().getConfiguration().orientation);
         UpdateUi.onResume(this);
@@ -668,13 +691,41 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         // Extra keys active styling
         if (mExtraKeysView != null && mTermuxTerminalExtraKeys != null) {
             int activeBg = androidx.core.graphics.ColorUtils.setAlphaComponent(color, 0x44);
-            mExtraKeysView.setButtonColors(0xFFE6EDF3, color, 0xFF1C2128, activeBg);
+            int keySurface = NewTermuxColorTheme.getSurfaceColorInt(NewTermuxColorTheme.getCurrentTheme(this));
+            mExtraKeysView.setButtonColors(0xFFFAF9F6, color, keySurface, activeBg);
             mExtraKeysView.reload(mTermuxTerminalExtraKeys.getExtraKeysInfo(), mTerminalToolbarDefaultHeight);
         }
 
         // Session chips
         updateSessionTabs();
         DeckBridge.notifyChanged();
+    }
+
+    public void refreshTerminalBackground() {
+        android.widget.ImageView bgImage = findViewById(R.id.terminal_bg_image);
+        View bgScrim = findViewById(R.id.terminal_bg_scrim);
+        if (bgImage == null || bgScrim == null) return;
+        if (!BackgroundImageStore.hasImage(this)) {
+            bgImage.setImageBitmap(null);
+            bgImage.setVisibility(View.GONE);
+            bgScrim.setVisibility(View.GONE);
+            return;
+        }
+        int baseBg = NewTermuxColorTheme.getBackgroundColorInt(NewTermuxColorTheme.getCurrentTheme(this));
+        int scrimColor = BackgroundImageStore.computeScrimColorInt(baseBg, BackgroundImageStore.getScrimAlpha(this));
+        BackgroundImageStore.loadBitmapAsync(this, bmp -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (bmp == null || bmp.isRecycled()) {
+                bgImage.setImageBitmap(null);
+                bgImage.setVisibility(View.GONE);
+                bgScrim.setVisibility(View.GONE);
+            } else {
+                bgImage.setImageBitmap(bmp);
+                bgImage.setVisibility(View.VISIBLE);
+                bgScrim.setBackgroundColor(scrimColor);
+                bgScrim.setVisibility(View.VISIBLE);
+            }
+        });
     }
 
     private void applyFeatureSettings() {
@@ -691,6 +742,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private void setVisible(int id, boolean visible) {
         View v = findViewById(id);
         if (v != null) v.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (mInputHostBridge != null) {
+            mInputHostBridge.onPause();
+        }
     }
 
     @Override
@@ -729,6 +788,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     @Override
     public void onDestroy() {
         super.onDestroy();
+        if (mInputHostBridge != null) {
+            mInputHostBridge.destroy();
+        }
+        if (mAiHostBridge != null) {
+            mAiHostBridge.destroy();
+        }
 
         Logger.logDebug(LOG_TAG, "onDestroy");
 
@@ -913,6 +978,55 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         if (mTermuxTerminalSessionActivityClient != null)
             mTermuxTerminalSessionActivityClient.onCreate();
+
+        mBlockHostBridge = new com.newtermux.blocks.BlockHostBridge(this);
+        mBlockHostBridge.attach(findViewById(R.id.block_workspace_container), mTerminalView);
+        mInputHostBridge = new com.newtermux.input.InputHostBridge(this, () -> mBlockHostBridge);
+        mInputHostBridge.attach(
+            findViewById(R.id.input_bar_top_container),
+            findViewById(R.id.input_bar_bottom_container),
+            findViewById(R.id.floating_edit_overlay)
+        );
+        mWorkspaceHostBridge = new com.newtermux.workspace.WorkspaceHostBridge(this, () -> mBlockHostBridge);
+        mWorkspaceHostBridge.attachToContentRoot(findViewById(android.R.id.content));
+        mWorkflowHostBridge = new com.newtermux.workflows.WorkflowHostBridge(
+            this,
+            () -> mBlockHostBridge,
+            () -> mInputHostBridge
+        );
+        mWorkflowHostBridge.attachToContentRoot(findViewById(android.R.id.content));
+        mAiHostBridge = new com.newtermux.ai.AiHostBridge(
+            this,
+            () -> mBlockHostBridge,
+            () -> mInputHostBridge
+        );
+        mAiHostBridge.attachHandlers();
+        View btnTabDrawer = findViewById(R.id.btn_tab_drawer);
+        if (btnTabDrawer != null) {
+            btnTabDrawer.setOnClickListener(v -> {
+                if (mWorkspaceHostBridge != null) mWorkspaceHostBridge.toggleDrawer();
+            });
+        }
+    }
+
+    @Nullable
+    public com.newtermux.blocks.BlockHostBridge getBlockHostBridge() {
+        return mBlockHostBridge;
+    }
+
+    @Nullable
+    public com.newtermux.input.InputHostBridge getInputHostBridge() {
+        return mInputHostBridge;
+    }
+
+    @Nullable
+    public com.newtermux.workspace.WorkspaceHostBridge getWorkspaceHostBridge() {
+        return mWorkspaceHostBridge;
+    }
+
+    @Nullable
+    public com.newtermux.workflows.WorkflowHostBridge getWorkflowHostBridge() {
+        return mWorkflowHostBridge;
     }
 
 
@@ -1335,6 +1449,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 mTerminalView.setFocusable(true);
                 mTerminalView.setFocusableInTouchMode(true);
                 mTerminalView.requestFocus();
+                if (mBlockHostBridge != null) mBlockHostBridge.syncVisibility();
+                if (mInputHostBridge != null) mInputHostBridge.setOverlayHidden(false);
+            } else {
+                View blockContainer = findViewById(R.id.block_workspace_container);
+                if (blockContainer != null) blockContainer.setVisibility(View.GONE);
+                if (mInputHostBridge != null) mInputHostBridge.setOverlayHidden(true);
             }
         }
     }
@@ -1730,7 +1850,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }).start();
     }
 
-    private View buildGlassTabView(
+    private View buildTabPillView(
             int type,
             int status,
             int progress,
@@ -1755,15 +1875,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         frame.setLayoutParams(frameLp);
         frame.setClipToOutline(true);
 
+        String themeKey = NewTermuxColorTheme.getCurrentTheme(this);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(9 * density);
         if (isActive) {
             int activeStroke = androidx.core.graphics.ColorUtils.setAlphaComponent(accentColor, 0xCC);
-            bg.setColor(0xE01A212E);
+            bg.setColor(NewTermuxColorTheme.getSurfaceElevatedColorInt(themeKey));
             bg.setStroke(Math.max(2, Math.round(1.4f * density)), activeStroke);
         } else {
-            bg.setColor(0xB811161F);
-            bg.setStroke(Math.max(1, Math.round(1 * density)), 0x28FFFFFF);
+            bg.setColor(NewTermuxColorTheme.getSurfaceColorInt(themeKey));
+            bg.setStroke(Math.max(1, Math.round(1 * density)), NewTermuxColorTheme.getBorderSubtleColorInt(themeKey));
         }
         frame.setBackground(bg);
 
@@ -1867,7 +1988,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             int status = getTerminalSessionStatus(session);
             int progress = (status == TAB_STATUS_PROCESSING) ? 45 : 0;
 
-            View tab = buildGlassTabView(
+            View tab = buildTabPillView(
                 TAB_TYPE_TERMINAL, status, progress, R.drawable.ic_tab_terminal,
                 displayName, isTabActive, accentColor, false,
                 v -> switchToTerminalTab(session),
@@ -1886,7 +2007,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             final BrowserTab bTab = mOpenBrowserTabs.get(i);
             boolean isBrowserActive = (mActiveBrowserTabIndex == bIdx && mActiveFileTabIndex < 0 && !mIsLocalhostTabActive);
             String title = (bTab.title != null && !bTab.title.isEmpty()) ? bTab.title : "Browser";
-            View tab = buildGlassTabView(
+            View tab = buildTabPillView(
                 TAB_TYPE_BROWSER, bTab.status, bTab.progress, R.drawable.ic_tab_browser,
                 title, isBrowserActive, accentColor, true,
                 v -> switchToBrowserTab(bIdx),
@@ -1905,7 +2026,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             final int fIdx = i;
             final FileTab fileTab = mOpenFileTabs.get(i);
             boolean isFileActive = (mActiveFileTabIndex == fIdx && !mIsLocalhostTabActive);
-            View tab = buildGlassTabView(
+            View tab = buildTabPillView(
                 TAB_TYPE_FILE, fileTab.status, 0, R.drawable.ic_tab_file,
                 fileTab.name, isFileActive, accentColor, true,
                 v -> switchToFileTab(fIdx),
@@ -1924,7 +2045,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             int count = mLiveServers != null ? mLiveServers.size() : 0;
             String label = count > 0 ? "Localhost (" + count + ")" : "Localhost";
             int status = count > 0 ? TAB_STATUS_FINISHED : TAB_STATUS_STANDBY;
-            View tab = buildGlassTabView(
+            View tab = buildTabPillView(
                 TAB_TYPE_LOCALHOST, status, 0, R.drawable.ic_localhost,
                 label, mIsLocalhostTabActive, accentColor, mHasLocalhostTab,
                 v -> openLocalhostTab(),
@@ -2021,6 +2142,18 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
 
         updateStatusLineTabs(sessions, currentSession);
+        if (mInputHostBridge != null) {
+            java.util.List<TerminalSession> rawSessions = new ArrayList<>(sessions.size());
+            for (com.termux.shared.termux.shell.command.runner.terminal.TermuxSession ts : sessions) {
+                if (ts != null && ts.getTerminalSession() != null) {
+                    rawSessions.add(ts.getTerminalSession());
+                }
+            }
+            mInputHostBridge.syncSessions(rawSessions, currentSession);
+        }
+        if (mWorkspaceHostBridge != null) {
+            mWorkspaceHostBridge.refreshSessions();
+        }
         DeckBridge.notifyChanged();
     }
 
@@ -2307,23 +2440,48 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void confirmCloseTerminalSession(TerminalSession session) {
         if (session == null) return;
-        if (session.isRunning()) {
+        boolean hasDraft = mInputHostBridge != null && mInputHostBridge.hasUnsavedDraft(session);
+        boolean running = session.isRunning();
+        if (hasDraft) {
+            String draft = mInputHostBridge.getDraftForSession(session);
+            String title = running ? "Close Running Session?" : "Unsaved Command Draft";
+            String msg = running
+                ? "A process is still running and this session has an unsaved command draft."
+                : "You have an unsaved command draft in this session.";
+            new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(msg)
+                .setPositiveButton("Save draft as snippet", (dialog, which) -> {
+                    String trigger = com.newtermux.input.InputDraftStore.saveDraftAsSnippet(this, draft);
+                    if (trigger != null) {
+                        android.widget.Toast.makeText(
+                            this,
+                            "Saved draft as snippet " + trigger,
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show();
+                    }
+                    closeSessionNow(session);
+                })
+                .setNeutralButton("Discard", (dialog, which) -> closeSessionNow(session))
+                .setNegativeButton("Cancel", null)
+                .show();
+        } else if (running) {
             new AlertDialog.Builder(this)
                 .setTitle("Close Session")
                 .setMessage("A process is still running in this session. Are you sure you want to terminate it?")
-                .setPositiveButton("Close", (dialog, which) -> {
-                    session.finishIfRunning();
-                    if (mTermuxTerminalSessionActivityClient != null) {
-                        mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
-                    }
-                })
+                .setPositiveButton("Close", (dialog, which) -> closeSessionNow(session))
                 .setNegativeButton("Cancel", null)
                 .show();
         } else {
-            session.finishIfRunning();
-            if (mTermuxTerminalSessionActivityClient != null) {
-                mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
-            }
+            closeSessionNow(session);
+        }
+    }
+
+    private void closeSessionNow(TerminalSession session) {
+        if (session == null) return;
+        session.finishIfRunning();
+        if (mTermuxTerminalSessionActivityClient != null) {
+            mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
         }
     }
 
@@ -2333,6 +2491,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             "Localhost Servers",
             "New Dev Browser Tab",
             "Package Manager",
+            "Toggle Block / Raw PTY",
             "Clear Terminal",
             "Upload / Paste Image",
             "Speech to Text",
@@ -2354,24 +2513,27 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 case 3:
                     if (mPackageManagerMenu != null) mPackageManagerMenu.show(anchor);
                     break;
-                case 4: {
+                case 4:
+                    if (mBlockHostBridge != null) mBlockHostBridge.toggleRawPtyForActiveSession();
+                    break;
+                case 5: {
                     TerminalSession session = getCurrentSession();
                     if (session != null) session.write("clear\n");
                     break;
                 }
-                case 5:
+                case 6:
                     promptOrUploadImageToCli(anchor);
                     break;
-                case 6:
+                case 7:
                     onSTTButtonClicked();
                     break;
-                case 7:
+                case 8:
                     toggleAutocorrectFromUi();
                     break;
-                case 8:
+                case 9:
                     showTipsAndShortcutsDialog();
                     break;
-                case 9:
+                case 10:
                     openSettings();
                     break;
             }

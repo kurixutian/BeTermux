@@ -45,13 +45,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.features.NewTermuxSettings
-import com.newtermux.glass.GlassBackground
-import com.newtermux.glass.GlassCard
-import com.newtermux.glass.GlassPageBackdropProvider
-import com.newtermux.glass.GlassTabBar
-import com.newtermux.glass.GlassTabItem
-import com.newtermux.glass.GlassTopBar
-import com.newtermux.glass.glassPageSource
+import com.newtermux.theme.WarpBackground
+import com.newtermux.theme.WarpCard
+import com.newtermux.theme.WarpSegmentedBar
+import com.newtermux.theme.WarpSegmentedItem
+import com.newtermux.theme.WarpTopBar
 import com.termux.app.TermuxActivity
 import com.termux.shared.termux.TermuxConstants
 import kotlinx.coroutines.Dispatchers
@@ -126,24 +124,22 @@ private fun PackageManagerScreen(
         if (q.isEmpty()) source else source.filter { it.name.lowercase(Locale.ROOT).contains(q) }
     }
 
-    GlassPageBackdropProvider {
-        GlassBackground {
-            androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .glassPageSource()
-                        .padding(top = 84.dp),
-                ) {
-                    GlassTabBar(
-                        selectedIndex = tab,
-                        onTabSelected = { tab = it; query = "" },
-                        tabs = listOf(
-                            GlassTabItem("Installed (${if (installedLoaded) installed.size else "…"})"),
-                            GlassTabItem("Available (${if (availableLoaded) available.size else "…"})"),
-                        ),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+    WarpBackground {
+        androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 84.dp),
+            ) {
+                WarpSegmentedBar(
+                    selectedIndex = tab,
+                    onSelect = { tab = it; query = "" },
+                    items = listOf(
+                        WarpSegmentedItem("Installed (${if (installedLoaded) installed.size else "…"})"),
+                        WarpSegmentedItem("Available (${if (availableLoaded) available.size else "…"})"),
+                    ),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
 
                     OutlinedTextField(
                         value = query,
@@ -206,7 +202,7 @@ private fun PackageManagerScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             items(filtered, key = { it.name }) { entry ->
-                                GlassCard(
+                                WarpCard(
                                     modifier = Modifier.fillMaxWidth(),
                                     onClick = { detail = entry },
                                 ) {
@@ -224,12 +220,11 @@ private fun PackageManagerScreen(
                         }
                     }
                 }
-                GlassTopBar(
+                WarpTopBar(
                     title = "Package Manager",
                     onBack = onBack,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
-            }
         }
     }
 

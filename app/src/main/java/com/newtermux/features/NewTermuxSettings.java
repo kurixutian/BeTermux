@@ -26,6 +26,12 @@ public class NewTermuxSettings {
     public static final String LAYOUT_STATUS_LINE            = "status_line";  // one tmux-style line at the bottom
     public static final String LAYOUT_DUAL_SCREEN            = "dual_screen";  // landscape: terminal on top, controls on the second display
 
+    // Block view (Phase 1b)
+    public static final String KEY_BLOCK_VIEW_ENABLED        = "block_view_enabled";
+    public static final String KEY_BLOCK_DENSITY             = "block_density";
+    public static final String DENSITY_COMFORT               = "comfort";
+    public static final String DENSITY_COMPACT               = "compact";
+
     private static SharedPreferences prefs(Context ctx) {
         return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
@@ -83,6 +89,118 @@ public class NewTermuxSettings {
         prefs(ctx).edit().putString(landscape ? KEY_LAYOUT_LANDSCAPE : KEY_LAYOUT_PORTRAIT, layout).apply();
     }
 
+    public static boolean isBlockViewEnabled(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_BLOCK_VIEW_ENABLED, true);
+    }
+    public static void setBlockViewEnabled(Context ctx, boolean enabled) {
+        prefs(ctx).edit().putBoolean(KEY_BLOCK_VIEW_ENABLED, enabled).apply();
+    }
+
+    public static String getBlockDensity(Context ctx) {
+        String raw = prefs(ctx).getString(KEY_BLOCK_DENSITY, DENSITY_COMFORT);
+        return DENSITY_COMPACT.equals(raw) ? DENSITY_COMPACT : DENSITY_COMFORT;
+    }
+    public static void setBlockDensity(Context ctx, String density) {
+        String normalized = DENSITY_COMPACT.equals(density) ? DENSITY_COMPACT : DENSITY_COMFORT;
+        prefs(ctx).edit().putString(KEY_BLOCK_DENSITY, normalized).apply();
+    }
+
+    public static final String KEY_INPUT_BAR_POSITION = "input_bar_position";
+    public static final String INPUT_POSITION_BOTTOM  = "bottom";
+    public static final String INPUT_POSITION_TOP     = "top";
+
+    public static String getInputBarPosition(Context ctx) {
+        String raw = prefs(ctx).getString(KEY_INPUT_BAR_POSITION, INPUT_POSITION_BOTTOM);
+        return INPUT_POSITION_TOP.equals(raw) ? INPUT_POSITION_TOP : INPUT_POSITION_BOTTOM;
+    }
+
+    public static void setInputBarPosition(Context ctx, String position) {
+        String normalized = INPUT_POSITION_TOP.equals(position) ? INPUT_POSITION_TOP : INPUT_POSITION_BOTTOM;
+        prefs(ctx).edit().putString(KEY_INPUT_BAR_POSITION, normalized).apply();
+    }
+
+    public static final String KEY_UI_ZOOM_PERCENT     = "ui_zoom_percent";
+    public static final int UI_ZOOM_MIN_PERCENT        = 85;
+    public static final int UI_ZOOM_MAX_PERCENT        = 130;
+    public static final int UI_ZOOM_DEFAULT_PERCENT    = 100;
+
+    public static int getUiZoomPercent(Context ctx) {
+        int raw = prefs(ctx).getInt(KEY_UI_ZOOM_PERCENT, UI_ZOOM_DEFAULT_PERCENT);
+        return Math.max(UI_ZOOM_MIN_PERCENT, Math.min(UI_ZOOM_MAX_PERCENT, raw));
+    }
+
+    public static void setUiZoomPercent(Context ctx, int percent) {
+        int clamped = Math.max(UI_ZOOM_MIN_PERCENT, Math.min(UI_ZOOM_MAX_PERCENT, percent));
+        prefs(ctx).edit().putInt(KEY_UI_ZOOM_PERCENT, clamped).apply();
+    }
+
+    public static float getUiZoomFactor(Context ctx) {
+        return getUiZoomPercent(ctx) / 100f;
+    }
+
+    // AI Assistant (Phase 5)
+    public static final String KEY_AI_ENABLED       = "ai_enabled";
+    public static final String KEY_AI_PROVIDER      = "ai_provider";
+    public static final String KEY_AI_MODEL         = "ai_model";
+    public static final String KEY_AI_BASE_URL      = "ai_base_url";
+    public static final String KEY_AI_MAX_TOKENS    = "ai_max_tokens";
+    public static final String AI_PROVIDER_OPENAI   = "openai";
+    public static final String AI_PROVIDER_ANTHROPIC = "anthropic";
+    public static final String AI_PROVIDER_GEMINI   = "gemini";
+    public static final int AI_MAX_TOKENS_MIN       = 128;
+    public static final int AI_MAX_TOKENS_MAX       = 8192;
+    public static final int AI_MAX_TOKENS_DEFAULT   = 1024;
+
+    public static boolean isAiEnabled(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_AI_ENABLED, false);
+    }
+
+    public static void setAiEnabled(Context ctx, boolean enabled) {
+        prefs(ctx).edit().putBoolean(KEY_AI_ENABLED, enabled).apply();
+    }
+
+    public static String getAiProvider(Context ctx) {
+        String raw = prefs(ctx).getString(KEY_AI_PROVIDER, AI_PROVIDER_OPENAI);
+        if (AI_PROVIDER_ANTHROPIC.equals(raw) || AI_PROVIDER_GEMINI.equals(raw)) {
+            return raw;
+        }
+        return AI_PROVIDER_OPENAI;
+    }
+
+    public static void setAiProvider(Context ctx, String provider) {
+        String normalized = (AI_PROVIDER_ANTHROPIC.equals(provider) || AI_PROVIDER_GEMINI.equals(provider))
+            ? provider : AI_PROVIDER_OPENAI;
+        prefs(ctx).edit().putString(KEY_AI_PROVIDER, normalized).apply();
+    }
+
+    public static String getAiModel(Context ctx) {
+        String raw = prefs(ctx).getString(KEY_AI_MODEL, "");
+        return raw == null ? "" : raw.trim();
+    }
+
+    public static void setAiModel(Context ctx, String model) {
+        prefs(ctx).edit().putString(KEY_AI_MODEL, model == null ? "" : model.trim()).apply();
+    }
+
+    public static String getAiBaseUrl(Context ctx) {
+        String raw = prefs(ctx).getString(KEY_AI_BASE_URL, "");
+        return raw == null ? "" : raw.trim();
+    }
+
+    public static void setAiBaseUrl(Context ctx, String baseUrl) {
+        prefs(ctx).edit().putString(KEY_AI_BASE_URL, baseUrl == null ? "" : baseUrl.trim()).apply();
+    }
+
+    public static int getAiMaxTokens(Context ctx) {
+        int raw = prefs(ctx).getInt(KEY_AI_MAX_TOKENS, AI_MAX_TOKENS_DEFAULT);
+        return Math.max(AI_MAX_TOKENS_MIN, Math.min(AI_MAX_TOKENS_MAX, raw));
+    }
+
+    public static void setAiMaxTokens(Context ctx, int maxTokens) {
+        int clamped = Math.max(AI_MAX_TOKENS_MIN, Math.min(AI_MAX_TOKENS_MAX, maxTokens));
+        prefs(ctx).edit().putInt(KEY_AI_MAX_TOKENS, clamped).apply();
+    }
+
     // Pending command — written by Settings, consumed and cleared by TermuxActivity.onResume()
     public static String getPendingCommand(Context ctx) {
         return prefs(ctx).getString("pending_command", null);
@@ -112,6 +230,7 @@ public class NewTermuxSettings {
             case KEY_TEXT_EXPANSION_ENABLED:       return isTextExpansionEnabled(ctx);
             case KEY_EXTRA_KEYS_VISIBLE:           return isExtraKeysVisible(ctx);
             case KEY_KEEP_ALIVE_BACKGROUND:        return isKeepAliveInBackground(ctx);
+            case KEY_AI_ENABLED:                   return isAiEnabled(ctx);
             default:                               return prefs(ctx).getBoolean(key, false);
         }
     }

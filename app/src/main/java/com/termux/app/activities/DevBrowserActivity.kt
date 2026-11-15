@@ -28,6 +28,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.DisposableEffect
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.core.animateFloatAsState
@@ -132,9 +133,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.features.LocalhostServerManager
-import com.newtermux.glass.GlassBackground
-import com.newtermux.glass.GlassTokens
-import com.newtermux.glass.glassSurface
+import com.newtermux.theme.LocalWarpPalette
+import com.newtermux.theme.WarpBackground
+import com.newtermux.theme.warpSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -167,11 +168,11 @@ private fun formatHistoryDate(timestamp: Long): String = try {
     ""
 }
 
-private fun isLocalDevUrl(urlStr: String?): Boolean {
+internal fun isLocalDevUrl(urlStr: String?): Boolean {
     if (urlStr.isNullOrBlank()) return true
     return try {
-        val uri = Uri.parse(urlStr)
-        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+        val rawHost = java.net.URI(urlStr).host ?: return false
+        val host = rawHost.removePrefix("[").removeSuffix("]").lowercase(Locale.ROOT)
         host == "localhost" ||
             host == "127.0.0.1" ||
             host == "::1" ||
@@ -379,6 +380,16 @@ fun EmbeddedDevBrowser(
     var urlText by remember { mutableStateOf(initialUrl) }
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    DisposableEffect(webViewRef) {
+        val wv = webViewRef
+        onDispose {
+            if (wv != null) {
+                wv.stopLoading()
+                wv.removeAllViews()
+                wv.destroy()
+            }
+        }
+    }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var isPageLoading by remember { mutableStateOf(false) }
@@ -673,7 +684,8 @@ fun EmbeddedDevBrowser(
         }
     }
 
-    GlassBackground(modifier = Modifier.fillMaxSize()) {
+    WarpBackground(modifier = Modifier.fillMaxSize()) {
+        val warpPalette = LocalWarpPalette.current
         Scaffold(
             containerColor = Color.Transparent,
         ) { padding ->
@@ -682,15 +694,15 @@ fun EmbeddedDevBrowser(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                // Liquid Glass Header Bar
+                // Warp Header Bar
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 6.dp, vertical = 4.dp)
-                        .glassSurface(
-                            shape = RoundedCornerShape(16.dp),
-                            tint = GlassTokens.SURFACE_BASE.copy(alpha = 0.78f),
-                            borderColor = Color.White.copy(alpha = 0.22f),
+                        .warpSurface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = warpPalette.surface,
+                            borderColor = warpPalette.borderSubtle,
                         )
                 ) {
                     Row(
@@ -1047,9 +1059,9 @@ fun EmbeddedDevBrowser(
                             num == null || num !in livePortNums
                         }.forEach { port ->
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = GlassTokens.SURFACE_BASE.copy(alpha = 0.6f),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+                                shape = RoundedCornerShape(10.dp),
+                                color = warpPalette.surfaceElevated,
+                                border = BorderStroke(1.dp, warpPalette.borderSubtle),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(14.dp))
                                     .clickable {
@@ -1460,10 +1472,10 @@ fun EmbeddedDevBrowser(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(12.dp)
-                    .glassSurface(
-                        shape = RoundedCornerShape(20.dp),
-                        tint = GlassTokens.SURFACE_BASE.copy(alpha = 0.94f),
-                        borderColor = Color.White.copy(alpha = 0.25f),
+                    .warpSurface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = LocalWarpPalette.current.surfaceElevated,
+                        borderColor = LocalWarpPalette.current.borderStrong,
                     )
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {

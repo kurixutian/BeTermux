@@ -14,6 +14,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -68,8 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.glass.GlassTokens
-import com.newtermux.glass.glassSurface
+import com.newtermux.theme.CuratedThemes
+import com.newtermux.theme.warpSurface
 import com.termux.R
 import com.termux.app.TermuxActivity
 import com.termux.app.terminal.MiniTerminalPipView
@@ -106,9 +107,9 @@ class ControlDeckPresentation(private val owner: TermuxActivity, display: Displa
     }
 }
 
-private val DeckBg = GlassTokens.BACKGROUND
-private val TileBg = Color(0xFF181B1F)
-private val TileBorder = Color(0xFF383E48)
+private val DeckBg = CuratedThemes.WarmDark.background
+private val TileBg = CuratedThemes.WarmDark.surface
+private val TileBorder = CuratedThemes.WarmDark.borderStrong
 
 // One grid for the whole deck: session tiles, the new-session tile and command buttons all take
 // one column, with the same gap everywhere, so they line up with each other.
@@ -238,12 +239,8 @@ private fun HeaderAction(onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
             .size(HeaderButton)
-            .glassSurface(
-                shape = CircleShape,
-                elevation = 2.dp,
-                sampleBackdrop = false,
-                onClick = onClick,
-            ),
+            .warpSurface(shape = CircleShape)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { content() }
 }

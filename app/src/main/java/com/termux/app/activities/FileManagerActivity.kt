@@ -82,11 +82,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.statusBarsPadding
-import com.newtermux.glass.GlassBackground
-import com.newtermux.glass.GlassPageBackdropProvider
-import com.newtermux.glass.GlassTokens
-import com.newtermux.glass.glassPageSource
-import com.newtermux.glass.glassSurface
+import com.newtermux.compose.MenuItemDivider
+import com.newtermux.compose.NewTermuxComposeTheme
+import com.newtermux.compose.outlinedMenuCard
+import com.newtermux.theme.LocalWarpPalette
+import com.newtermux.theme.WarpBackground
+import com.newtermux.theme.warpSurface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -294,22 +295,22 @@ private fun FileBrowserScreen(
         }
     }
 
-    GlassPageBackdropProvider {
-        GlassBackground {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .glassSurface(
-                                shape = RoundedCornerShape(20.dp),
-                                elevation = 4.dp,
-                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
-                            )
-                    ) {
+    WarpBackground {
+        val warpPalette = LocalWarpPalette.current
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .warpSurface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = warpPalette.surface,
+                            borderColor = warpPalette.borderSubtle,
+                        )
+                ) {
                         TopAppBar(
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                             title = {
@@ -434,7 +435,7 @@ private fun FileBrowserScreen(
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).glassPageSource()) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Storage quick shortcuts row
             Row(
                 modifier = Modifier
@@ -617,7 +618,6 @@ private fun FileBrowserScreen(
                 }
             }
         }
-    }
     }
     }
 
@@ -926,22 +926,22 @@ private fun MarkdownViewer(
 
     BackHandler { tryExit() }
 
-    GlassPageBackdropProvider {
-        GlassBackground {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .glassSurface(
-                                shape = RoundedCornerShape(20.dp),
-                                elevation = 4.dp,
-                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
-                            )
-                    ) {
+    WarpBackground {
+        val warpPalette = LocalWarpPalette.current
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .warpSurface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = warpPalette.surface,
+                            borderColor = warpPalette.borderSubtle,
+                        )
+                ) {
                         TopAppBar(
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                             title = {
@@ -1066,7 +1066,6 @@ private fun MarkdownViewer(
                 )
             }
         }
-    }
     }
     }
 
@@ -1239,22 +1238,22 @@ private fun ImageViewer(file: File, onClose: () -> Unit) {
 
     BackHandler { onClose() }
 
-    GlassPageBackdropProvider {
-        GlassBackground {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .glassSurface(
-                                shape = RoundedCornerShape(20.dp),
-                                elevation = 4.dp,
-                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
-                            )
-                    ) {
+    WarpBackground {
+        val warpPalette = LocalWarpPalette.current
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .warpSurface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = warpPalette.surface,
+                            borderColor = warpPalette.borderSubtle,
+                        )
+                ) {
                         TopAppBar(
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                             title = {
@@ -1298,7 +1297,6 @@ private fun ImageViewer(file: File, onClose: () -> Unit) {
         }
     }
     }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1326,22 +1324,22 @@ private fun TextEditorView(
 
     BackHandler { tryExit() }
 
-    GlassPageBackdropProvider {
-        GlassBackground {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .glassSurface(
-                                shape = RoundedCornerShape(20.dp),
-                                elevation = 4.dp,
-                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
-                            )
-                    ) {
+    WarpBackground {
+        val warpPalette = LocalWarpPalette.current
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .warpSurface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = warpPalette.surface,
+                            borderColor = warpPalette.borderSubtle,
+                        )
+                ) {
                         TopAppBar(
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                             title = {
@@ -1497,7 +1495,7 @@ private fun TextEditorView(
                         textStyle = TextStyle(
                             fontFamily = FontFamily.Monospace,
                             fontSize = 13.sp,
-                            color = Color(0xFFECECEC),
+                            color = MaterialTheme.colorScheme.onSurface,
                             lineHeight = 20.sp
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
@@ -1505,7 +1503,6 @@ private fun TextEditorView(
                 }
             }
         }
-    }
     }
     }
 
@@ -1543,22 +1540,22 @@ private fun BinaryFileInfoView(
 
     BackHandler { onClose() }
 
-    GlassPageBackdropProvider {
-        GlassBackground {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .glassSurface(
-                                shape = RoundedCornerShape(20.dp),
-                                elevation = 4.dp,
-                                tint = GlassTokens.GLASS_TINT.copy(alpha = 0.56f),
-                            )
-                    ) {
+    WarpBackground {
+        val warpPalette = LocalWarpPalette.current
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .warpSurface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = warpPalette.surface,
+                            borderColor = warpPalette.borderSubtle,
+                        )
+                ) {
                         TopAppBar(
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                             title = { Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -1603,7 +1600,6 @@ private fun BinaryFileInfoView(
                 }
             }
         }
-    }
     }
     }
 }

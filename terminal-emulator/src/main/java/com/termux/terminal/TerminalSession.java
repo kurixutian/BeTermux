@@ -220,6 +220,11 @@ public final class TerminalSession extends TerminalOutput {
         return mEmulator;
     }
 
+    /** Attaches an existing {@link TerminalEmulator} for unit tests without forking a PTY process. */
+    public void attachEmulatorForTesting(@androidx.annotation.NonNull TerminalEmulator emulator) {
+        mEmulator = emulator;
+    }
+
     /** Notify the {@link #mClient} that the screen has changed. */
     protected void notifyScreenUpdate() {
         mClient.onTextChanged(this);
@@ -287,6 +292,27 @@ public final class TerminalSession extends TerminalOutput {
     @Override
     public void onColorsChanged() {
         mClient.onColorsChanged(this);
+    }
+
+    @Override
+    public void onOsc133Event(Osc133Event event) {
+        if (mClient != null && event != null) {
+            mClient.onOsc133Event(this, event);
+        }
+    }
+
+    @Override
+    public void onOsc7CwdChanged(String cwd) {
+        if (mClient != null && cwd != null) {
+            mClient.onOsc7CwdChanged(this, cwd);
+        }
+    }
+
+    @Override
+    public void onMainBufferReflowed(TerminalBuffer.ReflowMapping mapping) {
+        if (mClient != null && mapping != null) {
+            mClient.onMainBufferReflowed(this, mapping);
+        }
     }
 
     public int getPid() {

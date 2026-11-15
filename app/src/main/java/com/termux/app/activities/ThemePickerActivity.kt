@@ -2,8 +2,12 @@ package com.termux.app.activities
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -32,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,16 +44,20 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,15 +76,17 @@ import androidx.compose.ui.unit.dp
 import com.newtermux.compose.MenuItemDivider
 import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.compose.outlinedMenuCard
-import com.newtermux.glass.GlassBackground
-import com.newtermux.glass.GlassPageBackdropProvider
-import com.newtermux.glass.GlassTopBar
-import com.newtermux.glass.glassPageSource
 import com.newtermux.deck.DeckBridge
 import com.newtermux.features.ColorPickerDialog
 import com.newtermux.features.NewTermuxColorTheme
 import com.newtermux.features.NewTermuxSettings
 import com.newtermux.features.NewTermuxTheme
+import com.newtermux.theme.BackgroundImageStore
+import com.newtermux.theme.LocalWarpPalette
+import com.newtermux.theme.WarpBackground
+import com.newtermux.theme.WarpCard
+import com.newtermux.theme.WarpTopBar
+import kotlinx.coroutines.launch
 
 /**
  * Terminal theme + accent color picker. Compose migration (Phase 4).
@@ -119,22 +130,35 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
         NewTermuxColorTheme.THEME_KEYS.filter { it != NewTermuxColorTheme.THEME_KEY_CUSTOM }
     }
     val accentColors = remember { NewTermuxTheme.COLORS.toList() }
+    val scope = rememberCoroutineScope()
+    var hasBgImage by remember { mutableStateOf(BackgroundImageStore.hasImage(context)) }
+    var scrimAlpha by remember { mutableFloatStateOf(BackgroundImageStore.getScrimAlpha(context)) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val ok = BackgroundImageStore.saveFromUri(context, uri)
+                hasBgImage = BackgroundImageStore.hasImage(context)
+                if (!ok) {
+                    Toast.makeText(context, "Could not load selected image", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
-    GlassPageBackdropProvider {
-        GlassBackground(accent = Color(activeAccent)) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxSize().glassPageSource(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = 88.dp,
-                        bottom = 24.dp,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+    WarpBackground {
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 10.dp,
+                    end = 10.dp,
+                    top = 88.dp,
+                    bottom = 24.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Layout") }
 
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -163,7 +187,7 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                 )
             }
 
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Terminal Theme") }
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Curated Theme") }
 
             items(terminalKeys, key = { it }) { key ->
                 TerminalThemeCard(
@@ -175,6 +199,116 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                         activeTheme = key
                     },
                 )
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                WarpCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    selected = activeTheme == NewTermuxColorTheme.THEME_KEY_CUSTOM,
+                    onClick = { showScope = true },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Custom ANSI Colors",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = LocalWarpPalette.current.textPrimary,
+                            )
+                            Text(
+                                if (activeTheme == NewTermuxColorTheme.THEME_KEY_CUSTOM) "Active (~/.termux/colors.properties)"
+                                else "Fine-tune individual ANSI slots",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LocalWarpPalette.current.textSecondary,
+                            )
+                        }
+                        Text(
+                            "Edit…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Background Image") }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                WarpCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (hasBgImage) "Wallpaper Active" else "No Wallpaper Set",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = LocalWarpPalette.current.textPrimary,
+                                )
+                                Text(
+                                    if (hasBgImage) "Dimmed with a ${((scrimAlpha * 100).toInt())}% contrast scrim"
+                                    else "Optional image behind terminal and chrome",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = LocalWarpPalette.current.textSecondary,
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (hasBgImage) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            BackgroundImageStore.clearImage(context)
+                                            hasBgImage = false
+                                        },
+                                    ) {
+                                        Text("Clear")
+                                    }
+                                }
+                                Button(onClick = { imagePicker.launch("image/*") }) {
+                                    Text(if (hasBgImage) "Change" else "Choose")
+                                }
+                            }
+                        }
+                        if (hasBgImage) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        "Contrast Scrim",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = LocalWarpPalette.current.textSecondary,
+                                    )
+                                    Text(
+                                        "${(scrimAlpha * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                Slider(
+                                    value = scrimAlpha,
+                                    onValueChange = {
+                                        scrimAlpha = it
+                                        BackgroundImageStore.setScrimAlpha(context, it)
+                                    },
+                                    valueRange = BackgroundImageStore.MIN_SCRIM_ALPHA..BackgroundImageStore.MAX_SCRIM_ALPHA,
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Accent Color") }
@@ -211,22 +345,21 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                 )
             }
         }
-                GlassTopBar(
-                    title = "Themes & Colors",
-                    onBack = onBack,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                    actions = {
-                        Box {
-                            IconButton(onClick = { overflowOpen = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                            }
-                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, modifier = Modifier.outlinedMenuCard()) {
-                                DropdownMenuItem(text = { Text("Custom Theme") }, onClick = { overflowOpen = false; showScope = true })
-                            }
+            WarpTopBar(
+                title = "Themes & Colors",
+                onBack = onBack,
+                modifier = Modifier.align(Alignment.TopCenter),
+                actions = {
+                    Box {
+                        IconButton(onClick = { overflowOpen = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
-                    },
-                )
-            }
+                        DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, modifier = Modifier.outlinedMenuCard()) {
+                            DropdownMenuItem(text = { Text("Custom Theme") }, onClick = { overflowOpen = false; showScope = true })
+                        }
+                    }
+                },
+            )
         }
     }
 
@@ -260,6 +393,7 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
             onApply = { colorMap ->
                 val base = NewTermuxColorTheme.getCustomThemeContent(context)
                 NewTermuxColorTheme.applyCustomTheme(context, buildThemeContent(base, colorMap))
+                activeTheme = NewTermuxColorTheme.THEME_KEY_CUSTOM
                 editorKeys = null
             },
         )
@@ -279,7 +413,7 @@ private fun LayoutChoiceRow(
     accent: Int,
     onSelect: (String) -> Unit,
 ) {
-    val onAccent = if (androidx.core.graphics.ColorUtils.calculateLuminance(accent) > 0.5) Color(0xFF1B1029) else Color.White
+    val onAccent = if (androidx.core.graphics.ColorUtils.calculateLuminance(accent) > 0.45) Color(0xFF121210) else Color.White
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,

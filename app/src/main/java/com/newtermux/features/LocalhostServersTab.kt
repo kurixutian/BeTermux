@@ -52,13 +52,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.glass.GlassBackground
-import com.newtermux.glass.GlassCard
-import com.newtermux.glass.GlassChip
-import com.newtermux.glass.GlassPageBackdropProvider
-import com.newtermux.glass.GlassTokens
-import com.newtermux.glass.GlassTopBar
-import com.newtermux.glass.glassPageSource
+import com.newtermux.theme.LocalWarpPalette
+import com.newtermux.theme.WarpBackground
+import com.newtermux.theme.WarpCard
+import com.newtermux.theme.WarpTopBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -118,40 +115,38 @@ fun LocalhostServersTab(
         }
     }
 
-    GlassPageBackdropProvider {
-        GlassBackground(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                GlassTopBar(
-                    title = "Localhost",
-                    subtitle = if (servers.isEmpty()) "No active servers" else "${servers.size} live",
-                    actions = {
-                        IconButton(
-                            onClick = { scope.launch { reload() } },
-                            enabled = !refreshing,
-                        ) {
-                            if (refreshing && servers.isEmpty()) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Refresh servers")
-                            }
+    WarpBackground(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            WarpTopBar(
+                title = "Localhost",
+                subtitle = if (servers.isEmpty()) "No active servers" else "${servers.size} live",
+                actions = {
+                    IconButton(
+                        onClick = { scope.launch { reload() } },
+                        enabled = !refreshing,
+                    ) {
+                        if (refreshing && servers.isEmpty()) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh servers")
                         }
-                        if (onClose != null) {
-                            IconButton(onClick = onClose) {
-                                Icon(Icons.Filled.Close, contentDescription = "Close tab")
-                            }
+                    }
+                    if (onClose != null) {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close tab")
                         }
-                    },
-                )
+                    }
+                },
+            )
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .glassPageSource(),
-                ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
                     if (servers.isEmpty() && !refreshing) {
                         Column(
                             modifier = Modifier
@@ -187,7 +182,7 @@ fun LocalhostServersTab(
                         ) {
                             items(servers, key = { "${it.port}:${it.pid ?: -1}" }) { server ->
                                 val isStopping = stoppingPort == server.port
-                                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                                WarpCard(modifier = Modifier.fillMaxWidth()) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -198,7 +193,7 @@ fun LocalhostServersTab(
                                             modifier = Modifier
                                                 .size(9.dp)
                                                 .clip(CircleShape)
-                                                .background(Color(0xFF3FB950)),
+                                                .background(LocalWarpPalette.current.success),
                                         )
                                         Spacer(Modifier.width(10.dp))
                                         Column(modifier = Modifier.weight(1f)) {
@@ -312,5 +307,4 @@ fun LocalhostServersTab(
                 }
             }
         }
-    }
 }

@@ -58,11 +58,9 @@ import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.features.NewTermuxSettings
 import com.newtermux.features.SshProfile
 import com.newtermux.features.SshProfileStore
-import com.newtermux.glass.GlassBackground
-import com.newtermux.glass.GlassCard
-import com.newtermux.glass.GlassPageBackdropProvider
-import com.newtermux.glass.GlassTopBar
-import com.newtermux.glass.glassPageSource
+import com.newtermux.theme.WarpBackground
+import com.newtermux.theme.WarpCard
+import com.newtermux.theme.WarpTopBar
 
 /**
  * SSH connection / port-forward profile manager.
@@ -104,12 +102,11 @@ private fun SshManagerScreen(
 
     fun persist() = SshProfileStore.save(profiles.toMutableList())
 
-    GlassPageBackdropProvider {
-        GlassBackground {
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (profiles.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().glassPageSource().padding(32.dp),
+    WarpBackground {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (profiles.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -135,7 +132,7 @@ private fun SshManagerScreen(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().glassPageSource(),
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             start = 12.dp,
                             end = 12.dp,
@@ -154,7 +151,7 @@ private fun SshManagerScreen(
                         }
                     }
                 }
-                GlassTopBar(
+                WarpTopBar(
                     title = "SSH Manager",
                     onBack = onBack,
                     modifier = Modifier.align(Alignment.TopCenter),
@@ -164,7 +161,6 @@ private fun SshManagerScreen(
                         }
                     },
                 )
-            }
         }
     }
 
@@ -226,7 +222,7 @@ private fun ProfileCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    GlassCard(
+    WarpCard(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
     ) {

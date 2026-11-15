@@ -119,7 +119,7 @@ public class TermuxActivityRootView extends LinearLayout implements ViewTreeObse
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
-        if (mActivity != null && ViewUtils.isFloatingMultiWindow(mActivity)) {
+        if (mActivity != null && ((android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && mActivity.isInMultiWindowMode()) || ViewUtils.isFloatingMultiWindow(mActivity))) {
             marginBottom = null;
             lastMarginBottom = null;
             return;
@@ -150,10 +150,10 @@ public class TermuxActivityRootView extends LinearLayout implements ViewTreeObse
 
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) getLayoutParams();
 
-        // In freeform/floating windows, windowRect display offsets vs window-local coordinates cause
-        // legacy split-screen bottomMargin compensation to oscillate endlessly and break input.
-        // Let the window manager handle floating window IME placement cleanly with zero extra bottom margin.
-        if (ViewUtils.isFloatingMultiWindow(mActivity)) {
+        // In freeform/floating windows or multi-window mode, windowRect display offsets vs window-local
+        // coordinates cause legacy bottomMargin compensation to oscillate endlessly and break input.
+        // Let the window manager handle multi-window IME placement cleanly with zero extra bottom margin.
+        if ((android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && mActivity.isInMultiWindowMode()) || ViewUtils.isFloatingMultiWindow(mActivity)) {
             marginBottom = null;
             lastMarginBottom = null;
             if (params.bottomMargin != 0) {
