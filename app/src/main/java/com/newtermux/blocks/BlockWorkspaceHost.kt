@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -52,6 +53,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -136,9 +139,19 @@ fun BlockWorkspaceHost(
     val state by (stateFlowOverride ?: controller.activeState).collectAsState()
     val emptyAiFlow = remember { MutableStateFlow<Map<Long, AiSuggestionState>>(emptyMap()) }
     val aiSuggestions by (aiSuggestionsFlow ?: emptyAiFlow).collectAsState()
-    val listState = rememberLazyListState()
+    val listState = key(state.sessionHandle) { rememberLazyListState() }
     val scope = rememberCoroutineScope()
     val backgroundInteraction = remember { MutableInteractionSource() }
+
+    var stickToBottom by remember(state.sessionHandle) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
+            .collect { (scrolling, canScrollForward) ->
+                if (scrolling) {
+                    stickToBottom = !canScrollForward
+                }
+            }
+    }
 
     var selectionSheetState by remember { mutableStateOf<Pair<String, String>?>(null) }
     var searchStates by remember(state.sessionHandle) {
@@ -218,14 +231,22 @@ fun BlockWorkspaceHost(
         map
     }
 
-    // Keep viewport scrolled to the latest active block when new rows arrive unless user scrolled away.
+    // Keep viewport scrolled to the latest active block when switching tabs, resizing for keyboard, or receiving output.
     val lastEndAbsRow = state.blocks.lastOrNull()?.endAbsRow ?: state.unblockifiedHeader?.endAbsRow ?: -1L
-    LaunchedEffect(state.blocks.size, lastEndAbsRow) {
-        if (listState.isScrollInProgress) return@LaunchedEffect
-        val lastItem = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-        val visible = listState.layoutInfo.visibleItemsInfo
-        val nearBottom = visible.isEmpty() || !listState.canScrollForward || (visible.lastOrNull()?.index ?: 0) >= (lastItem - 1)
-        if (nearBottom && lastItem > 0) {
+    val totalItems = listState.layoutInfo.totalItemsCount
+    val viewportHeight = listState.layoutInfo.viewportSize.height
+    LaunchedEffect(
+        state.sessionHandle,
+        state.blocks.size,
+        lastEndAbsRow,
+        state.cursorAbsRow,
+        state.revision,
+        totalItems,
+        viewportHeight
+    ) {
+        if (!stickToBottom || listState.isScrollInProgress) return@LaunchedEffect
+        val lastItem = (totalItems - 1).coerceAtLeast(0)
+        if (totalItems > 0) {
             listState.scrollToItem(lastItem, 100_000)
         }
     }
@@ -326,7 +347,8 @@ fun BlockWorkspaceHost(
 
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize(),
                 contentPadding = PaddingValues(
                     top = 6.dp,
                     bottom = if (state.selectionMode) 76.dp else 16.dp

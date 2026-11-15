@@ -45,6 +45,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -135,12 +137,18 @@ fun FloatingEditLayer(
         onDraftChange(updated)
     }
 
-    val suggestions = remember(textFieldValue.text, textFieldValue.selection.start, promptContext.fullCwd) {
-        CommandAutocomplete.computeSuggestions(
-            text = textFieldValue.text,
-            cursorIndex = textFieldValue.selection.start,
-            cwd = promptContext.fullCwd
-        )
+    var suggestions by remember { mutableStateOf<List<AutocompleteSuggestion>>(emptyList()) }
+    LaunchedEffect(textFieldValue.text, textFieldValue.selection.start, promptContext.fullCwd) {
+        val text = textFieldValue.text
+        val cursor = textFieldValue.selection.start
+        val cwd = promptContext.fullCwd
+        suggestions = withContext(Dispatchers.IO) {
+            CommandAutocomplete.computeSuggestions(
+                text = text,
+                cursorIndex = cursor,
+                cwd = cwd
+            )
+        }
     }
 
     fun applyAutocomplete(suggestion: AutocompleteSuggestion) {

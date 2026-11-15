@@ -21,7 +21,9 @@ object ShellIntegrationInstaller {
           __betermux_integrated=1
           __betermux_in_cmd=0
           __betermux_osc7() {
-            printf '\033]7;file://localhost%s\007' "${'$'}PWD"
+            local p="${'$'}{PWD//%/%25}"
+            p="${'$'}{p// /%20}"
+            printf '\033]7;file://localhost%s\007' "${'$'}p"
           }
           __betermux_preexec() {
             [ "${'$'}__betermux_in_cmd" = "1" ] && return
@@ -51,7 +53,9 @@ object ShellIntegrationInstaller {
           __betermux_integrated=1
           __betermux_in_cmd=0
           __betermux_osc7() {
-            printf '\033]7;file://localhost%s\007' "${'$'}PWD"
+            local p="${'$'}{PWD//%/%25}"
+            p="${'$'}{p// /%20}"
+            printf '\033]7;file://localhost%s\007' "${'$'}p"
           }
           __betermux_precmd() {
             local ec=$?

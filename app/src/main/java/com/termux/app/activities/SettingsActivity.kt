@@ -307,7 +307,6 @@ private fun RootScreen(activity: Activity, onBack: () -> Unit, onNav: (Route) ->
             HorizontalDivider()
             NavRow("Backup & Restore", "Back up or restore your Termux environment") { onNav(Route.BACKUP) }
             NavRow("Features", "Toggle NewTermux features on or off") { onNav(Route.FEATURES) }
-            NavRow("AI Assistant", "Configure inline block AI provider, API key, and token limit") { onNav(Route.AI_ASSISTANT) }
             NavRow("Text Expansion", "Auto-expand short triggers to full commands") { onNav(Route.TEXT_EXPANSION) }
             HorizontalDivider()
             NavRow("Termux", "Terminal, keyboard and debugging options") { onNav(Route.TERMUX) }
@@ -433,10 +432,7 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
             NtSwitch(context, NewTermuxSettings.KEY_SESSION_TABS, "Show Session Tabs", "Show session tab chips at the top")
             NtSwitch(context, NewTermuxSettings.KEY_SESSION_RENAME_ENABLED, "Session Renaming", "Long-press a session tab to rename it")
 
-            CategoryHeader("Terminal Blocks")
-            BlockViewSwitch(context)
-            BlockDensitySelector(context)
-            InputPositionSelector(context)
+            CategoryHeader("Display")
             UiZoomSelector(context)
 
             CategoryHeader("Startup")

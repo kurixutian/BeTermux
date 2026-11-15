@@ -135,6 +135,13 @@ class WorkflowParserAndStoreTest {
         // Non-workflow binary/text without front-matter or fenced shell should return null
         val plainNote = "Remember to buy milk".toByteArray(StandardCharsets.UTF_8)
         assertNull(WorkflowShareHelper.inspectIncomingBytes(plainNote, "note.txt", "text/plain"))
+
+        // Oversized stream stops at MAX_IMPORT_BYTES + 1 and is flagged oversized
+        val oversized = ByteArray(300 * 1024) { 'a'.code.toByte() }
+        val bounded = WorkflowShareHelper.readBoundedBytes(oversized.inputStream())
+        assertEquals(256 * 1024 + 1, bounded.size)
+        assertTrue(WorkflowShareHelper.isOversized(bounded))
+        assertNull(WorkflowShareHelper.inspectIncomingBytes(bounded, "big.md", "text/markdown"))
     }
 
     @Test

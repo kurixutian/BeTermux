@@ -43,6 +43,7 @@ Thumbs.db
 *.jks
 local.properties
 .gradle/
+.kotlin/
 app/release/
 bootstrap-output/
 newtermux-release.jks

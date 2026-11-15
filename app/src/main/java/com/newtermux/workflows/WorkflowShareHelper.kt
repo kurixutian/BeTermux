@@ -16,6 +16,7 @@ object WorkflowShareHelper {
 
     fun buildShareIntent(context: Context, workflow: Workflow, repo: WorkflowRepository): Intent {
         val mdFile = repo.getFileForWorkflow(workflow)
+        check(mdFile.exists()) { "Workflow file not found: ${mdFile.absolutePath}" }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", mdFile)
         val markdown = WorkflowMarkdownParser.serialize(workflow)
 
@@ -58,12 +59,17 @@ object WorkflowShareHelper {
     }
 
     @JvmStatic
+    fun isOversized(bytes: ByteArray): Boolean = bytes.size > MAX_IMPORT_BYTES
+
+    @JvmStatic
     fun readBoundedBytes(stream: InputStream): ByteArray {
         val out = ByteArrayOutputStream()
         val buf = ByteArray(4096)
         var total = 0
-        while (total <= MAX_IMPORT_BYTES) {
-            val read = stream.read(buf)
+        val cap = MAX_IMPORT_BYTES + 1
+        while (total < cap) {
+            val toRead = minOf(buf.size, cap - total)
+            val read = stream.read(buf, 0, toRead)
             if (read <= 0) break
             out.write(buf, 0, read)
             total += read

@@ -76,6 +76,16 @@ class InputDraftStore(context: Context) {
             }
         }
 
+        for (key in prefs.all.keys) {
+            if (key.startsWith(KEY_SLOT_PREFIX)) {
+                val slotIdx = key.removePrefix(KEY_SLOT_PREFIX).toIntOrNull()
+                if (slotIdx == null || slotIdx >= orderedHandles.size) {
+                    editor.remove(key)
+                    dirtyPrefs = true
+                }
+            }
+        }
+
         if (dirtyPrefs) {
             editor.apply()
         }

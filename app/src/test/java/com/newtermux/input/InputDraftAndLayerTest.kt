@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -211,6 +212,9 @@ class InputDraftAndLayerTest {
             }
 
             composeRule.onNodeWithTag("floating_edit_input").performTextInput("/imp")
+            composeRule.waitUntil(timeoutMillis = 2_000) {
+                composeRule.onAllNodesWithTag("autocomplete_/impeccable").fetchSemanticsNodes().isNotEmpty()
+            }
             composeRule.onNodeWithTag("autocomplete_/impeccable").assertIsDisplayed().performClick()
             assertEquals("/impeccable ", latestDraft)
         } finally {

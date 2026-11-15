@@ -29,8 +29,6 @@ import com.termux.app.TermuxService;
 import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
 import com.termux.shared.termux.terminal.io.BellHandler;
 import com.termux.shared.logger.Logger;
-import com.termux.terminal.Osc133Event;
-import com.termux.terminal.TerminalBuffer;
 import com.termux.terminal.TerminalColors;
 import com.termux.terminal.TerminalSession;
 import com.termux.terminal.TerminalSessionClient;
@@ -121,48 +119,10 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     @Override
     public void onTextChanged(@NonNull TerminalSession changedSession) {
         TermuxActivity.markSessionActive(changedSession);
-        com.newtermux.blocks.BlockHostBridge bridge = mActivity.getBlockHostBridge();
-        if (bridge != null) {
-            bridge.onTextChanged(changedSession);
-        }
         if (!mActivity.isVisible()) return;
 
         if (mActivity.getCurrentSession() == changedSession) mActivity.getTerminalView().onScreenUpdated();
         mActivity.notifyPipUpdate(changedSession);
-    }
-
-    @Override
-    public void onOsc133Event(@NonNull TerminalSession session, @NonNull Osc133Event event) {
-        com.newtermux.blocks.BlockHostBridge bridge = mActivity.getBlockHostBridge();
-        if (bridge != null) {
-            bridge.onOsc133Event(session, event);
-        }
-        if (event.type == Osc133Event.TYPE_COMMAND_FINISHED) {
-            com.newtermux.input.InputHostBridge inputBridge = mActivity.getInputHostBridge();
-            if (inputBridge != null) {
-                inputBridge.onSessionContextSignal(session);
-            }
-        }
-    }
-
-    @Override
-    public void onOsc7CwdChanged(@NonNull TerminalSession session, @NonNull String cwd) {
-        com.newtermux.blocks.BlockHostBridge bridge = mActivity.getBlockHostBridge();
-        if (bridge != null) {
-            bridge.onOsc7CwdChanged(session, cwd);
-        }
-        com.newtermux.input.InputHostBridge inputBridge = mActivity.getInputHostBridge();
-        if (inputBridge != null) {
-            inputBridge.onSessionContextSignal(session);
-        }
-    }
-
-    @Override
-    public void onMainBufferReflowed(@NonNull TerminalSession session, @NonNull TerminalBuffer.ReflowMapping mapping) {
-        com.newtermux.blocks.BlockHostBridge bridge = mActivity.getBlockHostBridge();
-        if (bridge != null) {
-            bridge.onMainBufferReflowed(session, mapping);
-        }
     }
 
     @Override
@@ -181,10 +141,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
     @Override
     public void onSessionFinished(@NonNull TerminalSession finishedSession) {
-        com.newtermux.blocks.BlockHostBridge bridge = mActivity.getBlockHostBridge();
-        if (bridge != null) {
-            bridge.onSessionFinished(finishedSession, finishedSession.getExitStatus());
-        }
         TermuxService service = mActivity.getTermuxService();
 
         if (service == null || service.wantsToStop()) {
@@ -353,14 +309,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         checkAndScrollToSession(session);
         updateBackgroundColor();
         mActivity.updateSessionTabs();
-        com.newtermux.blocks.BlockHostBridge bridge = mActivity.getBlockHostBridge();
-        if (bridge != null) {
-            bridge.onActiveSessionChanged(session);
-        }
-        com.newtermux.input.InputHostBridge inputBridge = mActivity.getInputHostBridge();
-        if (inputBridge != null) {
-            inputBridge.onActiveSessionChanged(session);
-        }
     }
 
     void notifyOfSessionChange() {
@@ -511,14 +459,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         if (service == null) return;
 
         int index = service.removeTermuxSession(finishedSession);
-        com.newtermux.blocks.BlockHostBridge bridge = mActivity.getBlockHostBridge();
-        if (bridge != null) {
-            bridge.onSessionRemoved(finishedSession);
-        }
-        com.newtermux.input.InputHostBridge inputBridge = mActivity.getInputHostBridge();
-        if (inputBridge != null) {
-            inputBridge.onSessionRemoved(finishedSession);
-        }
 
         int size = service.getTermuxSessionsSize();
         if (size == 0) {

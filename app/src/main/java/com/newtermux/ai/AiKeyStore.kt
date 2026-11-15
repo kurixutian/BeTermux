@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -25,29 +26,72 @@ object AiKeyStore {
     private const val GCM_IV_LEN = 12
     private const val GCM_TAG_BITS = 128
 
+    private val keyErrors = ConcurrentHashMap<String, String>()
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private fun prefKey(provider: AiProviderKind): String = "api_key_${provider.id}"
 
-    fun setApiKey(context: Context, provider: AiProviderKind, rawKey: String) {
+    private fun isKeyStoreMissingSandbox(): Boolean =
+        Build.FINGERPRINT.equals("robolectric", ignoreCase = true) ||
+            runCatching { KeyStore.getInstance("AndroidKeyStore") }.isFailure
+
+    fun setApiKey(context: Context, provider: AiProviderKind, rawKey: String): Boolean {
         val trimmed = rawKey.trim()
+        val key = prefKey(provider)
         val editor = prefs(context).edit()
         if (trimmed.isEmpty()) {
-            editor.remove(prefKey(provider)).apply()
-            return
+            keyErrors.remove(key)
+            editor.remove(key).apply()
+            return true
         }
-        val encoded = encryptWithKeyStore(trimmed) ?: (PREFIX_RAW + encodeBase64(trimmed.toByteArray(StandardCharsets.UTF_8)))
-        editor.putString(prefKey(provider), encoded).apply()
+        val encrypted = encryptWithKeyStore(trimmed)
+        val encoded = when {
+            encrypted != null -> encrypted
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.M || isKeyStoreMissingSandbox() ->
+                PREFIX_RAW + encodeBase64(trimmed.toByteArray(StandardCharsets.UTF_8))
+            else -> {
+                keyErrors[key] = "AndroidKeyStore encryption failed; refusing to save unencrypted API key."
+                return false
+            }
+        }
+        keyErrors.remove(key)
+        editor.putString(key, encoded).apply()
+        return true
     }
 
     fun getApiKey(context: Context, provider: AiProviderKind): String {
-        val stored = prefs(context).getString(prefKey(provider), null) ?: return ""
-        return when {
-            stored.startsWith(PREFIX_GCM) -> decryptWithKeyStore(stored.removePrefix(PREFIX_GCM)).orEmpty()
-            stored.startsWith(PREFIX_RAW) -> String(decodeBase64(stored.removePrefix(PREFIX_RAW)), StandardCharsets.UTF_8)
-            else -> ""
+        val key = prefKey(provider)
+        val stored = prefs(context).getString(key, null) ?: run {
+            keyErrors.remove(key)
+            return ""
         }
+        return when {
+            stored.startsWith(PREFIX_GCM) -> {
+                val decrypted = decryptWithKeyStore(stored.removePrefix(PREFIX_GCM))
+                if (decrypted == null) {
+                    keyErrors[key] = "Stored ${provider.displayName} API key could not be decrypted; please re-enter it."
+                    ""
+                } else {
+                    keyErrors.remove(key)
+                    decrypted
+                }
+            }
+            stored.startsWith(PREFIX_RAW) -> {
+                keyErrors.remove(key)
+                String(decodeBase64(stored.removePrefix(PREFIX_RAW)), StandardCharsets.UTF_8)
+            }
+            else -> {
+                keyErrors[key] = "Stored ${provider.displayName} API key format is unrecognized."
+                ""
+            }
+        }
+    }
+
+    fun getKeyError(context: Context, provider: AiProviderKind): String? {
+        getApiKey(context, provider)
+        return keyErrors[prefKey(provider)]
     }
 
     fun hasApiKey(context: Context, provider: AiProviderKind): Boolean =

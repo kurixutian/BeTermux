@@ -1,6 +1,7 @@
 package com.newtermux.input
 
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 data class AutocompleteSuggestion(
     val label: String,
@@ -179,8 +180,26 @@ object CommandAutocomplete {
             .toList()
     }
 
+    private const val SKILL_CACHE_TTL_MS = 30_000L
+
+    private data class SkillCacheEntry(
+        val loadedAtMs: Long,
+        val names: List<String>
+    )
+
+    private val skillCache = ConcurrentHashMap<String, SkillCacheEntry>()
+
+    fun invalidateSkillCache() {
+        skillCache.clear()
+    }
+
     private fun discoverInstalledSkillSlashNames(homeDir: String?): List<String> {
         if (homeDir.isNullOrBlank()) return emptyList()
+        val now = System.currentTimeMillis()
+        val cached = skillCache[homeDir]
+        if (cached != null && (now - cached.loadedAtMs) < SKILL_CACHE_TTL_MS) {
+            return cached.names
+        }
         val roots = listOf(
             File(homeDir, ".gemini/config/skills"),
             File(homeDir, ".gemini/skills"),
@@ -208,6 +227,7 @@ object CommandAutocomplete {
                 }
             }
         }
+        skillCache[homeDir] = SkillCacheEntry(now, out)
         return out
     }
 

@@ -1,9 +1,14 @@
 package com.newtermux.blocks
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -12,12 +17,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.termux.terminal.TerminalBuffer
 import com.termux.view.TerminalRowPainter
+import kotlinx.coroutines.withTimeoutOrNull
 
 const val BLOCK_CANVAS_CHUNK_ROWS = 50
 
@@ -63,7 +71,9 @@ fun BlockRowsCanvas(
             style = android.graphics.Paint.Style.FILL
         }
     }
-    val accessibleText = remember(revision, startAbsRow, endAbsRow, explicitAbsRows) {
+    val isLiveChunk = cursorAbsRow in startAbsRow..endAbsRow
+    val accessibleRevision = if (isLiveChunk) revision else 0L
+    val accessibleText = remember(accessibleRevision, startAbsRow, endAbsRow, explicitAbsRows) {
         val raw = if (explicitAbsRows != null) {
             explicitAbsRows.joinToString("\n") { buffer.getSelectedTextAbsolute(it, it) }.trim()
         } else {
@@ -72,23 +82,75 @@ fun BlockRowsCanvas(
         if (raw.length > 500) raw.substring(0, 500) else raw
     }
 
-    Canvas(
+    val contentWidthDp = with(density) { (columns * painter.mFontWidth).toDp() }
+    val canvasSizeModifier = if (columns > 0 && painter.mFontWidth > 0f) {
+        Modifier.width(contentWidthDp).height(heightDp)
+    } else {
+        Modifier.fillMaxWidth().height(heightDp)
+    }
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(heightDp)
-            .semantics {
+            .horizontalScroll(rememberScrollState())
+    ) {
+        Canvas(
+            modifier = canvasSizeModifier
+                .semantics {
                 if (accessibleText.isNotEmpty()) {
                     contentDescription = accessibleText
                 }
             }
             .pointerInput(startAbsRow, endAbsRow, explicitAbsRows, columns, screenRows, sessionCwd, painter) {
-                detectTapGestures(
-                    onTap = { offset ->
-                        val relRow = (offset.y / painter.mFontLineSpacing)
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    val downPos = down.position
+                    val slop = viewConfiguration.touchSlop
+                    val longPressTimeout = viewConfiguration.longPressTimeoutMillis
+                    val deadline = System.currentTimeMillis() + longPressTimeout
+                    var cancelled = false
+                    var upOffset: Offset? = null
+
+                    while (true) {
+                        val remaining = deadline - System.currentTimeMillis()
+                        val event = if (remaining > 0L) {
+                            withTimeoutOrNull(remaining) {
+                                awaitPointerEvent(PointerEventPass.Final)
+                            }
+                        } else {
+                            null
+                        }
+
+                        if (event == null) {
+                            if (!cancelled) {
+                                onLongPressBody()
+                            }
+                            break
+                        }
+
+                        if (event.changes.size > 1 || event.changes.count { it.pressed } > 1) {
+                            cancelled = true
+                            break
+                        }
+
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.isConsumed || (change.position - downPos).getDistance() > slop) {
+                            cancelled = true
+                            break
+                        }
+
+                        if (change.changedToUpIgnoreConsumed()) {
+                            upOffset = change.position
+                            break
+                        }
+                    }
+
+                    if (!cancelled && upOffset != null) {
+                        val relRow = (upOffset.y / painter.mFontLineSpacing)
                             .toInt()
                             .coerceIn(0, rowCount - 1)
                         val tappedAbsRow = explicitAbsRows?.getOrNull(relRow) ?: (startAbsRow + relRow)
-                        val col = (offset.x / painter.mFontWidth).toInt().coerceAtLeast(0)
+                        val col = (upOffset.x / painter.mFontWidth).toInt().coerceAtLeast(0)
                         val target = TerminalTapResolver.resolveAtAbsRow(
                             buffer = buffer,
                             absRow = tappedAbsRow,
@@ -98,13 +160,12 @@ fun BlockRowsCanvas(
                             sessionCwd = sessionCwd
                         )
                         if (target != null) {
-                            onTargetTapped(target, offset)
+                            onTargetTapped(target, upOffset)
                         } else {
                             onTapBody()
                         }
-                    },
-                    onLongPress = { onLongPressBody() }
-                )
+                    }
+                }
             }
     ) {
         @Suppress("UNUSED_EXPRESSION")
@@ -148,5 +209,6 @@ fun BlockRowsCanvas(
                 )
             }
         }
+    }
     }
 }

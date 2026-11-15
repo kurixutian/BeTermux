@@ -267,11 +267,6 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         }
         if (handleVirtualKeys(keyCode, e, true)) return true;
 
-        com.newtermux.blocks.BlockHostBridge blockBridge = mActivity.getBlockHostBridge();
-        if (blockBridge != null && blockBridge.handleHardwareKeyDown(keyCode, e)) {
-            return true;
-        }
-
         if (keyCode == KeyEvent.KEYCODE_ENTER && !currentSession.isRunning()) {
             mTermuxTerminalSessionActivityClient.removeFinishedSession(currentSession);
             return true;

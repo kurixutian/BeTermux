@@ -361,13 +361,52 @@ public final class TerminalView extends View {
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI;
 
         return new BaseInputConnection(this, true) {
+            private String mComposingSent = "";
+
+            private void syncComposingDiff(String nextText) {
+                int maxCommon = Math.min(mComposingSent.length(), nextText.length());
+                int commonPrefix = 0;
+                while (commonPrefix < maxCommon && mComposingSent.charAt(commonPrefix) == nextText.charAt(commonPrefix)) {
+                    commonPrefix++;
+                }
+                if (commonPrefix > 0 && commonPrefix < mComposingSent.length()
+                        && Character.isLowSurrogate(mComposingSent.charAt(commonPrefix))) {
+                    commonPrefix--;
+                }
+                if (commonPrefix < mComposingSent.length()) {
+                    int backspaces = mComposingSent.codePointCount(commonPrefix, mComposingSent.length());
+                    KeyEvent deleteKey = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL);
+                    for (int i = 0; i < backspaces; i++) {
+                        sendKeyEvent(deleteKey);
+                    }
+                }
+                if (commonPrefix < nextText.length()) {
+                    sendTextToTerminal(nextText.subSequence(commonPrefix, nextText.length()));
+                }
+            }
+
+            @Override
+            public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
+                    mClient.logInfo(LOG_TAG, "IME: setComposingText(\"" + text + "\", " + newCursorPosition + ")");
+                }
+                super.setComposingText(text, newCursorPosition);
+                if (mEmulator == null) return true;
+
+                String next = getEditable().toString();
+                syncComposingDiff(next);
+                mComposingSent = next;
+                return true;
+            }
 
             @Override
             public boolean finishComposingText() {
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) mClient.logInfo(LOG_TAG, "IME: finishComposingText()");
                 super.finishComposingText();
-
-                sendTextToTerminal(getEditable());
+                if (mEmulator != null) {
+                    syncComposingDiff(getEditable().toString());
+                }
+                mComposingSent = "";
                 getEditable().clear();
                 return true;
             }
@@ -382,7 +421,8 @@ public final class TerminalView extends View {
                 if (mEmulator == null) return true;
 
                 Editable content = getEditable();
-                sendTextToTerminal(content);
+                syncComposingDiff(content.toString());
+                mComposingSent = "";
                 content.clear();
                 return true;
             }
@@ -391,6 +431,15 @@ public final class TerminalView extends View {
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: deleteSurroundingText(" + leftLength + ", " + rightLength + ")");
+                }
+                if (!mComposingSent.isEmpty()) {
+                    boolean result = super.deleteSurroundingText(leftLength, rightLength);
+                    if (mEmulator != null) {
+                        String next = getEditable().toString();
+                        syncComposingDiff(next);
+                        mComposingSent = next;
+                    }
+                    return result;
                 }
                 // The stock Samsung keyboard with 'Auto check spelling' enabled sends leftLength > 1.
                 KeyEvent deleteKey = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL);

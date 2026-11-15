@@ -22,13 +22,16 @@ import kotlin.math.min
  */
 class BlockSessionController(
     private val scheduleDelayMs: (Long, Runnable) -> Unit = { delayMs, r ->
-        val h = Handler(Looper.getMainLooper())
-        if (delayMs <= 0L) r.run() else h.postDelayed(r, delayMs)
+        if (delayMs <= 0L) r.run() else MainLooperHolder.handler.postDelayed(r, delayMs)
     },
     private val cancelCallback: (Runnable) -> Unit = { r ->
-        Handler(Looper.getMainLooper()).removeCallbacks(r)
+        MainLooperHolder.handler.removeCallbacks(r)
     }
 ) {
+
+    private object MainLooperHolder {
+        val handler: Handler by lazy(LazyThreadSafetyMode.NONE) { Handler(Looper.getMainLooper()) }
+    }
 
     companion object {
         const val MAX_BLOCKS_PER_SESSION = 200

@@ -109,7 +109,6 @@ public final class TermuxInstaller {
                             fos.write(DEMO_SHELL_SCRIPT.getBytes(StandardCharsets.UTF_8));
                         }
                         Os.chmod(fakeShell.getAbsolutePath(), 0755);
-                        com.newtermux.blocks.ShellIntegrationInstaller.installIntoHomeDir(homeDir);
                     } catch (Exception e) {
                         Logger.logError(LOG_TAG, "Demo shell setup failed: " + e.getMessage());
                     }
@@ -163,7 +162,6 @@ public final class TermuxInstaller {
             if (TermuxFileUtils.isTermuxPrefixDirectoryEmpty()) {
                 Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" exists but is empty or only contains specific unimportant files.");
             } else {
-                com.newtermux.blocks.ShellIntegrationInstaller.installIfPossible();
                 whenDone.run();
                 return;
             }
@@ -281,7 +279,6 @@ public final class TermuxInstaller {
 
                     // Step 6: Extract bundled zsh plugins + write .zshrc
                     installZshPlugins(activity);
-                    com.newtermux.blocks.ShellIntegrationInstaller.installIfPossible();
 
                     activity.runOnUiThread(whenDone);
 

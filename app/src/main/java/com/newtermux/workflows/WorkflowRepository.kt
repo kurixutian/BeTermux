@@ -74,7 +74,9 @@ class WorkflowRepository(context: Context) {
 
     @Synchronized
     fun deleteWorkflow(id: String): Boolean {
-        val target = File(rootDir, "$id.md")
+        val safeId = WorkflowMarkdownParser.slugify(id)
+        val target = File(rootDir, "$safeId.md")
+        if (target.canonicalFile.parentFile != rootDir.canonicalFile) return false
         val removed = !target.exists() || target.delete()
         reload()
         return removed

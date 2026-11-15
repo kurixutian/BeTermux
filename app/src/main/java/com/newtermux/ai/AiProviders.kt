@@ -1,6 +1,7 @@
 package com.newtermux.ai
 
 import okhttp3.Call
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -176,6 +177,7 @@ class OkHttpAiTransport(
         val usr = AiPromptFormatter.userPrompt(request.blockContext, request.action)
         val model = cfg.effectiveModel()
         val baseUrl = cfg.effectiveBaseUrl()
+        validateEndpointUrl(baseUrl)
 
         return when (cfg.provider) {
             AiProviderKind.OPENAI_COMPATIBLE -> {
@@ -239,6 +241,17 @@ class OkHttpAiTransport(
                     .post(payload.toString().toRequestBody(jsonMediaType))
                     .build()
             }
+        }
+    }
+
+    private fun validateEndpointUrl(rawUrl: String) {
+        val parsed = rawUrl.toHttpUrlOrNull()
+            ?: throw IllegalArgumentException("Invalid AI base URL: $rawUrl")
+        if (parsed.scheme == "https") return
+        val host = parsed.host.lowercase()
+        val isLocal = host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "10.0.2.2"
+        if (!isLocal) {
+            throw IllegalArgumentException("Remote AI base URL must use https:// (got ${parsed.scheme}://$host)")
         }
     }
 
