@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -132,6 +133,24 @@ fun FloatingEditLayer(
         val cursor = minIdx + 1
         textFieldValue = TextFieldValue(updated, TextRange(cursor))
         onDraftChange(updated)
+    }
+
+    val suggestions = remember(textFieldValue.text, textFieldValue.selection.start, promptContext.fullCwd) {
+        CommandAutocomplete.computeSuggestions(
+            text = textFieldValue.text,
+            cursorIndex = textFieldValue.selection.start,
+            cwd = promptContext.fullCwd
+        )
+    }
+
+    fun applyAutocomplete(suggestion: AutocompleteSuggestion) {
+        val (nextText, nextCursor) = CommandAutocomplete.applySuggestion(
+            text = textFieldValue.text,
+            cursorIndex = textFieldValue.selection.start,
+            suggestion = suggestion
+        )
+        textFieldValue = TextFieldValue(nextText, TextRange(nextCursor))
+        onDraftChange(nextText)
     }
 
     Box(
@@ -286,6 +305,15 @@ fun FloatingEditLayer(
                             .semantics { contentDescription = "Multi-line command input" }
                             .onPreviewKeyEvent { event ->
                                 if (event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.Tab &&
+                                    !event.isShiftPressed &&
+                                    !event.isCtrlPressed &&
+                                    !event.isAltPressed &&
+                                    suggestions.isNotEmpty()
+                                ) {
+                                    applyAutocomplete(suggestions.first())
+                                    true
+                                } else if (event.type == KeyEventType.KeyDown &&
                                     (event.key == Key.Enter || event.key == Key.NumPadEnter)
                                 ) {
                                     if (event.isShiftPressed) {
@@ -308,9 +336,31 @@ fun FloatingEditLayer(
                     )
                 }
 
+                if (suggestions.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .testTag("floating_edit_autocomplete"),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        for (suggestion in suggestions) {
+                            WarpChip(
+                                label = suggestion.label,
+                                onClick = { applyAutocomplete(suggestion) },
+                                modifier = Modifier
+                                    .testTag("autocomplete_${suggestion.label}")
+                                    .semantics { contentDescription = "Autocomplete ${suggestion.label}" }
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Footer action row: Newline helper chip, Clear, Send
+                // Footer action row: Newline helper chip, Tab, Clear, Send
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -335,6 +385,15 @@ fun FloatingEditLayer(
                                 .testTag("floating_edit_newline")
                                 .semantics { contentDescription = "Insert newline at cursor" }
                         )
+                        if (suggestions.isNotEmpty()) {
+                            WarpChip(
+                                label = "⇥ Tab",
+                                onClick = { applyAutocomplete(suggestions.first()) },
+                                modifier = Modifier
+                                    .testTag("floating_edit_tab")
+                                    .semantics { contentDescription = "Accept top autocomplete suggestion" }
+                            )
+                        }
                         if (textFieldValue.text.isNotEmpty()) {
                             TextButton(
                                 onClick = {

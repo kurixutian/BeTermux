@@ -158,4 +158,63 @@ class InputDraftAndLayerTest {
         composeRule.onNodeWithTag("floating_edit_send").performClick()
         assertEquals(listOf("echo hello\npwd"), sent)
     }
+
+    @Test
+    fun commandEditorShowsSlashAndDirectoryAutocompleteAndAppliesSelection() {
+        val tempRoot = java.nio.file.Files.createTempDirectory("autocomplete_test").toFile()
+        try {
+            val projectsDir = java.io.File(tempRoot, "projects").apply { mkdirs() }
+            java.io.File(tempRoot, "notes.txt").writeText("hi")
+
+            // Path completion from cwd
+            val pathMatches = CommandAutocomplete.computeSuggestions(
+                text = "cd ./pr",
+                cursorIndex = 7,
+                cwd = tempRoot.absolutePath,
+                homeDir = tempRoot.absolutePath
+            )
+            assertTrue(pathMatches.any { it.label == "projects/" && it.insertText == "./projects/" })
+            val (completedPath, pathCursor) = CommandAutocomplete.applySuggestion(
+                "cd ./pr",
+                7,
+                pathMatches.first { it.label == "projects/" }
+            )
+            assertEquals("cd ./projects/", completedPath)
+            assertEquals("cd ./projects/".length, pathCursor)
+
+            // Slash command + UI chip insertion in FloatingEditLayer
+            val context = RuntimeEnvironment.getApplication()
+            var latestDraft = ""
+            composeRule.setContent {
+                var draft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+                NewTermuxComposeTheme(context) {
+                    FloatingEditLayer(
+                        visible = true,
+                        draft = draft,
+                        promptContext = PromptContext(
+                            userAtHost = "u@h",
+                            fullCwd = tempRoot.absolutePath,
+                            displayCwd = "~/test",
+                            gitBranch = null,
+                            lastExitCode = null
+                        ),
+                        isTopPosition = false,
+                        onDraftChange = {
+                            draft = it
+                            latestDraft = it
+                        },
+                        onSend = {},
+                        onClosePreservingDraft = {},
+                        onTogglePosition = {}
+                    )
+                }
+            }
+
+            composeRule.onNodeWithTag("floating_edit_input").performTextInput("/imp")
+            composeRule.onNodeWithTag("autocomplete_/impeccable").assertIsDisplayed().performClick()
+            assertEquals("/impeccable ", latestDraft)
+        } finally {
+            tempRoot.deleteRecursively()
+        }
+    }
 }
