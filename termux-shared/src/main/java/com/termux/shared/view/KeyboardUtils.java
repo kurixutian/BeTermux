@@ -75,7 +75,12 @@ public class KeyboardUtils {
         InputMethodManager inputMethodManager = (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
         if (inputMethodManager != null) {
             if (!inputMethodManager.showSoftInput(view, 0)) {
-                inputMethodManager.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
+                if (!inputMethodManager.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)) {
+                    // Multi-window: first attempts can fail before window focus propagates; retry once
+                    view.postDelayed(() -> {
+                        if (view.hasFocus()) inputMethodManager.showSoftInput(view, 0);
+                    }, 300);
+                }
             }
         }
     }

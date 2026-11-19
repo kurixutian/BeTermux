@@ -589,15 +589,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
                 }
             }
             if (nextSession != null) {
-                if (workspacesEnabled) {
-                    ProjectWorkspace nextWorkspace = WorkspaceManager.workspaceForSession(nextSession.mHandle);
-                    if (nextWorkspace != null) {
-                        if (!nextWorkspace.getId().equals(WorkspaceManager.activeWorkspace().getId())) {
-                            WorkspaceManager.setActiveWorkspace(nextWorkspace.getId());
-                        }
-                        mActivity.requestWorkspaceWakeIfNeeded(nextWorkspace.getId());
-                    }
-                }
                 setCurrentSession(nextSession);
             }
         }

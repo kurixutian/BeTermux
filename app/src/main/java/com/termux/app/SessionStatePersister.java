@@ -2,6 +2,7 @@ package com.termux.app;
 
 import android.content.Context;
 
+import com.betermux.workspace.WorkspaceManager;
 import com.termux.shared.shell.command.ExecutionCommand;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
@@ -41,6 +42,7 @@ public final class SessionStatePersister {
         public String  cwd;
         public boolean failsafe;
         public String  resumeCommand;
+        public String  workspace;
     }
 
     private static File stateFile() {
@@ -81,6 +83,13 @@ public final class SessionStatePersister {
                 o.put("cwd",            cwd);
                 o.put("failsafe",       ec.isFailsafe);
                 o.put("resume_command", resumeCmd);
+
+                String workspace = "";
+                if (s.getTerminalSession() != null) {
+                    com.betermux.workspace.ProjectWorkspace ws = WorkspaceManager.workspaceForSession(s.getTerminalSession().mHandle);
+                    if (ws != null) workspace = ws.getId();
+                }
+                o.put("workspace", workspace);
                 arr.put(o);
             }
             File f   = stateFile();
@@ -148,7 +157,13 @@ public final class SessionStatePersister {
             } else if (binaryName.equals("claude")) {
                 return "claude --continue";
             } else if (binaryName.equals("codex")) {
-                return "codex resume";
+                String[] parts = cmdline.split("\\s+");
+                for (int i = 0; i < parts.length - 1; i++) {
+                    if ("-s".equals(parts[i]) || "--session".equals(parts[i]) || "-r".equals(parts[i]) || "--resume".equals(parts[i])) {
+                        return "codex resume --no-daemon " + parts[i] + " " + parts[i + 1];
+                    }
+                }
+                return "codex resume --no-daemon";
             } else if (binaryName.equals("gemini")) {
                 String[] parts = cmdline.split("\\s+");
                 for (int i = 0; i < parts.length - 1; i++) {
@@ -204,6 +219,7 @@ public final class SessionStatePersister {
                 s.cwd           = o.optString("cwd",  "");
                 s.failsafe      = o.optBoolean("failsafe", false);
                 s.resumeCommand = o.optString("resume_command", "");
+                s.workspace     = o.optString("workspace", "");
                 out.add(s);
             }
         } catch (Exception ignored) { }

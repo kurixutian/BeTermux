@@ -67,7 +67,7 @@ BeTermux is a customized terminal emulator for Android with a modern Warp-inspir
 
 ## Installation
 
-**Requires Android 7.0+.** BeTermux installs under `com.termux` with a matching release signature, enabling a seamless in-place upgrade over NewTermux without losing your home directory, packages, or session data.
+**Requires Android 7.0+.** BeTermux installs under `com.termux` with a matching release signature, enabling a seamless in-place upgrade over BeTermux without losing your home directory, packages, or session data.
 
 Download the APK from the [**latest release**](https://github.com/kurixutian/BeTermux/releases/latest):
 
@@ -95,6 +95,6 @@ Built APKs are written to `app/build/outputs/apk/release/`.
 
 ## Credits & license
 
-BeTermux is forked from [NewTermux](https://github.com/The412Banner/NewTermux) by The412Banner, based on the [**Termux**](https://github.com/termux/termux-app) open source project by Fredrik Fornwall, Henrik Grimler & the Termux community. All credit for the terminal engine and Linux environment belongs upstream.
+BeTermux is forked from [BeTermux](https://github.com/The412Banner/BeTermux) by The412Banner, based on the [**Termux**](https://github.com/termux/termux-app) open source project by Fredrik Fornwall, Henrik Grimler & the Termux community. All credit for the terminal engine and Linux environment belongs upstream.
 
 Licensed under the **GNU GPLv3**. See [LICENSE.md](LICENSE.md).

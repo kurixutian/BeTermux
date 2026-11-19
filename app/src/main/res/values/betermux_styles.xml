@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Base BeTermux theme - Material Dark -->
+    <style name="Theme.BeTermux" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:textColorPrimary">@color/nt_on_surface</item>
+        <item name="colorPrimary">@color/nt_primary</item>
+        <item name="colorPrimaryVariant">@color/nt_primary_variant</item>
+        <item name="colorSecondary">@color/nt_secondary</item>
+        <item name="colorSecondaryVariant">@color/nt_secondary_variant</item>
+        <item name="android:colorBackground">@color/nt_background</item>
+        <item name="colorSurface">@color/nt_surface</item>
+        <item name="colorError">@color/nt_error</item>
+        <item name="colorOnPrimary">@color/nt_on_primary</item>
+        <item name="colorOnSecondary">@color/nt_on_secondary</item>
+        <item name="colorOnBackground">@color/nt_on_background</item>
+        <item name="colorOnSurface">@color/nt_on_surface</item>
+        <item name="colorOnError">@color/nt_on_primary</item>
+        <item name="android:statusBarColor">@color/nt_background</item>
+        <item name="android:navigationBarColor">@color/nt_tab_bg</item>
+        <item name="android:windowBackground">@color/nt_background</item>
+
+        <!-- Critical Termux Attributes to prevent InflateException -->
+        <item name="android:windowActionModeOverlay">true</item>
+
+        <!-- Rounded + outlined pop-out menus (Bannerlator look) for native PopupMenu/spinners -->
+        <item name="android:popupMenuStyle">@style/Widget.BeTermux.PopupMenu</item>
+        <item name="popupMenuStyle">@style/Widget.BeTermux.PopupMenu</item>
+        <item name="android:listPopupWindowStyle">@style/Widget.BeTermux.ListPopupWindow</item>
+        <item name="listPopupWindowStyle">@style/Widget.BeTermux.ListPopupWindow</item>
+        <item name="termuxActivityDrawerBackground">@color/nt_surface</item>
+        <item name="termuxActivityDrawerImageTint">@color/nt_on_surface</item>
+        <item name="extraKeysButtonTextColor">@color/nt_terminal_fg</item>
+        <item name="extraKeysButtonActiveTextColor">@color/nt_primary</item>
+        <item name="extraKeysButtonBackgroundColor">@color/nt_terminal_bg</item>
+        <item name="extraKeysButtonActiveBackgroundColor">@color/nt_surface_variant</item>
+    </style>
+
+    <!-- Floating Action Button -->
+    <style name="Widget.BeTermux.FAB" parent="Widget.MaterialComponents.FloatingActionButton">
+        <item name="backgroundTint">@color/nt_primary</item>
+        <item name="tint">@color/nt_on_primary</item>
+        <item name="elevation">6dp</item>
+    </style>
+
+    <!-- STT Button -->
+    <style name="Widget.BeTermux.STTButton" parent="Widget.MaterialComponents.Button.Icon">
+        <item name="backgroundTint">@color/nt_surface_variant</item>
+        <item name="iconTint">@color/nt_stt_idle</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">24dp</item>
+    </style>
+
+    <!-- Root Toggle Button -->
+    <style name="Widget.BeTermux.RootButton" parent="Widget.MaterialComponents.Button.Icon">
+        <item name="backgroundTint">@color/nt_surface_variant</item>
+        <item name="iconTint">@color/nt_root_inactive</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">24dp</item>
+    </style>
+
+    <!-- Session tab chip -->
+    <style name="Widget.BeTermux.SessionChip" parent="Widget.MaterialComponents.Chip.Choice">
+        <item name="chipBackgroundColor">@color/nt_surface_variant</item>
+        <item name="checkedIconTint">@color/nt_tab_active</item>
+        <item name="android:textColor">@color/nt_on_surface</item>
+        <item name="chipCornerRadius">16dp</item>
+    </style>
+
+    <!-- Toolbar -->
+    <style name="Widget.BeTermux.Toolbar" parent="Widget.MaterialComponents.Toolbar">
+        <item name="android:background">@color/nt_toolbar_bg</item>
+        <item name="titleTextColor">@color/nt_toolbar_text</item>
+        <item name="subtitleTextColor">@color/nt_tab_inactive</item>
+    </style>
+
+    <!-- Bottom sheet dialogs -->
+    <style name="Widget.BeTermux.BottomSheet" parent="Widget.MaterialComponents.BottomSheet">
+        <item name="android:background">@drawable/nt_bottom_sheet_bg</item>
+    </style>
+
+    <!-- Pop-out menus: rounded + outlined background (Bannerlator look) -->
+    <style name="Widget.BeTermux.PopupMenu" parent="Widget.MaterialComponents.PopupMenu">
+        <item name="android:popupBackground">@drawable/bg_popup_menu</item>
+    </style>
+    <style name="Widget.BeTermux.ListPopupWindow" parent="Widget.MaterialComponents.PopupMenu.ListPopupWindow">
+        <item name="android:popupBackground">@drawable/bg_popup_menu</item>
+    </style>
+
+</resources>

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status line layout (Settings → Appearance → Layout): replaces the top toolbar and session
+     previews with one line at the bottom. The toolbar buttons are moved into status_buttons at
+     runtime by TermuxActivity.setStatusLineMode(). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/betermux_status_line"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/nt_toolbar_bg"
+    android:visibility="gone">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/nt_divider" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+
+        <HorizontalScrollView
+            android:id="@+id/status_tabs_scroll"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:focusable="false"
+            android:focusableInTouchMode="false"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/status_tabs_container"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp" />
+
+        </HorizontalScrollView>
+
+        <LinearLayout
+            android:id="@+id/status_buttons"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical" />
+
+        <!-- Dual screen: reopen the controls on the second screen (shown only while they are closed) -->
+        <ImageButton
+            android:id="@+id/status_btn_deck"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Show controls on the second screen"
+            android:focusable="false"
+            android:focusableInTouchMode="false"
+            android:src="@drawable/ic_dual_screen"
+            android:tint="@color/nt_primary"
+            android:padding="13dp"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/status_btn_keys"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Extra keys"
+            android:focusable="false"
+            android:focusableInTouchMode="false"
+            android:src="@drawable/ic_keyboard"
+            android:tint="@color/nt_toolbar_icon"
+            android:padding="13dp" />
+
+    </LinearLayout>
+
+    <!-- Separates the line from the Android navigation bar below -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/nt_divider" />
+
+</LinearLayout>

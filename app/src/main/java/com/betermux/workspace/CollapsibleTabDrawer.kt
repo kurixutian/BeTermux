@@ -68,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -134,6 +135,8 @@ fun CollapsibleTabDrawer(
     val palette = LocalWarpPalette.current
     val accent = MaterialTheme.colorScheme.primary
     val reduceMotion = rememberReduceMotion()
+    // Dock as a side panel at medium+ window width (>=600dp); modal scrim overlay in compact.
+    val docked = LocalConfiguration.current.screenWidthDp >= 600
 
     var showAddWorkspaceDialog by remember { mutableStateOf(false) }
     var workspacePendingRemove by remember { mutableStateOf<WorkspaceDrawerItem?>(null) }
@@ -162,11 +165,19 @@ fun CollapsibleTabDrawer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.background.copy(alpha = 0.62f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
+                .then(
+                    if (docked) {
+                        // Docked: taps outside the panel fall through to the terminal.
+                        Modifier
+                    } else {
+                        Modifier
+                            .background(palette.background.copy(alpha = 0.62f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onDismiss
+                            )
+                    }
                 )
         ) {
             Column(

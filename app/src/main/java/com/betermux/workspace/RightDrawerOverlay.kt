@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -49,6 +50,8 @@ fun RightDrawerOverlay(
 
     val palette = LocalWarpPalette.current
     val reduceMotion = rememberReduceMotion()
+    // Dock as a side panel at medium+ window width (>=600dp); modal scrim overlay in compact.
+    val docked = LocalConfiguration.current.screenWidthDp >= 600
 
     AnimatedVisibility(
         visible = visible,
@@ -59,11 +62,19 @@ fun RightDrawerOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.background.copy(alpha = 0.62f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
+                .then(
+                    if (docked) {
+                        // Docked: taps outside the panel fall through to the terminal.
+                        Modifier
+                    } else {
+                        Modifier
+                            .background(palette.background.copy(alpha = 0.62f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onDismiss
+                            )
+                    }
                 )
         ) {
             Column(

@@ -6,6 +6,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.media.AudioManager;
+import android.os.Build;
 import android.os.Environment;
 import android.content.Intent;
 import android.net.Uri;
@@ -96,7 +97,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         onReloadProperties();
 
         int basePx = mActivity.getPreferences().getFontSize();
-        float zoom = com.newtermux.features.NewTermuxSettings.getUiZoomFactor(mActivity);
+        float zoom = com.betermux.features.BeTermuxSettings.getUiZoomFactor(mActivity);
         mActivity.getTerminalView().setTextSize(Math.round(basePx * zoom));
         mActivity.getTerminalView().setKeepScreenOn(mActivity.getPreferences().shouldKeepScreenOn());
     }
@@ -209,12 +210,18 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
                     tv.requestFocusFromTouch();
                     tv.requestFocus();
                 }
-                KeyboardUtils.showSoftKeyboard(mActivity, tv);
-                if (!hadFocus || ViewUtils.isFloatingMultiWindow(mActivity)) {
+                // In multi-window (split-screen or freeform) the IME session can point at a stale
+                // editor after switching panes; rebind before showing or showSoftInput no-ops.
+                // Only rebind while the keyboard is CLOSED though: restarting the session while
+                // the user is typing tears down Gboard's live session and collapses the
+                // landscape keyboard.
+                boolean multiWindow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && mActivity.isInMultiWindowMode();
+                if (!hadFocus || (multiWindow && !mActivity.isImeVisible())) {
                     android.view.inputmethod.InputMethodManager imm =
                         (android.view.inputmethod.InputMethodManager) mActivity.getSystemService(Context.INPUT_METHOD_SERVICE);
                     if (imm != null) imm.restartInput(tv);
                 }
+                KeyboardUtils.showSoftKeyboard(mActivity, tv);
             } else {
                 Logger.logVerbose(LOG_TAG, "Not showing soft keyboard onSingleTapUp since its disabled");
             }
@@ -386,31 +393,52 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         if (mActivity == null || mActivity.getCurrentSession() == null) return false;
         TerminalSession session = mActivity.getCurrentSession();
         TerminalEmulator term = session.getEmulator();
-        if (term == null || term.getScreen() == null) return false;
+        com.termux.view.TerminalView tv = mActivity.getTerminalView();
+        if (term == null || term.getScreen() == null || tv == null) return false;
 
         try {
-            int[] columnAndRow = mActivity.getTerminalView().getColumnAndRow(e, true);
-            String cwd = session.getCwd();
-            com.newtermux.blocks.TerminalTapResolver.TapTarget target =
-                com.newtermux.blocks.TerminalTapResolver.resolveAtBufferCoord(
-                    term.getScreen(),
-                    columnAndRow[1],
-                    columnAndRow[0],
-                    term.mColumns,
-                    term.mRows,
-                    cwd
-                );
-            if (target != null) {
-                com.newtermux.blocks.TerminalTapResolver.showChooser(
-                    mActivity,
-                    mActivity.getTerminalView(),
-                    target,
-                    cwd,
-                    (int) e.getRawX(),
-                    (int) e.getRawY()
-                );
-                return true;
+            int[] colRow = tv.getColumnAndRow(e, true);
+            int col = colRow[0];
+            int row = colRow[1];
+            String line = term.getScreen().getSelectedText(0, row, term.mColumns - 1, row);
+            if (line == null || line.isEmpty() || col < 0 || col >= line.length()) return false;
+
+            int start = col;
+            while (start > 0 && !Character.isWhitespace(line.charAt(start - 1))) start--;
+            int end = col;
+            while (end < line.length() && !Character.isWhitespace(line.charAt(end))) end++;
+
+            String token = line.substring(start, end)
+                .replaceAll("^[\"'`(\\[{<]+|[\"'`)\\]}>,;]+$", "");
+            if (token.isEmpty()) return false;
+
+            if (token.startsWith("file://")) {
+                token = token.substring("file://".length());
             }
+            if (!token.contains("/") && !token.contains(".")) return false;
+
+            java.io.File file = token.startsWith("/")
+                ? new java.io.File(token)
+                : new java.io.File(session.getCwd() != null ? session.getCwd() : TermuxConstants.TERMUX_HOME_DIR_PATH, token);
+
+            if (!file.exists()) return false;
+
+            final java.io.File targetFile = file;
+            String[] options = {"Open file", "Open file path", "Copy file"};
+            new AlertDialog.Builder(mActivity)
+                .setTitle(targetFile.getName())
+                .setItems(options, (d, which) -> {
+                    if (which == 0) {
+                        mActivity.openFileTab(targetFile);
+                    } else if (which == 1) {
+                        java.io.File parent = targetFile.getParentFile();
+                        mActivity.openFileTab(parent != null ? parent : targetFile);
+                    } else if (which == 2) {
+                        ShareUtils.copyTextToClipboard(mActivity, targetFile.getAbsolutePath(), "Copied file path");
+                    }
+                })
+                .show();
+            return true;
         } catch (Exception ex) {
             Logger.logError(LOG_TAG, "Error in handleTapOnText: " + ex.getMessage());
         }
@@ -427,9 +455,9 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
                 // Text expansion: fire on Space or Tab only (not Enter/newline)
                 if ((codePoint == ' ' || codePoint == '\t')
                         && mExpansionBuffer.length() > 0
-                        && com.newtermux.features.NewTermuxSettings.isTextExpansionEnabled(mActivity)) {
+                        && com.betermux.features.BeTermuxSettings.isTextExpansionEnabled(mActivity)) {
                     String trigger = mExpansionBuffer.toString();
-                    String expansion = com.newtermux.features.TextExpansionStore.findExpansion(mActivity, trigger);
+                    String expansion = com.betermux.features.TextExpansionStore.findExpansion(mActivity, trigger);
                     if (expansion != null) {
                         mExpansionBuffer.setLength(0);
                         mCurrentCommand.setLength(0);
@@ -612,7 +640,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
     public void changeFontSize(boolean increase) {
         mActivity.getPreferences().changeFontSize(increase);
-        float zoom = com.newtermux.features.NewTermuxSettings.getUiZoomFactor(mActivity);
+        float zoom = com.betermux.features.BeTermuxSettings.getUiZoomFactor(mActivity);
         mActivity.getTerminalView().setTextSize(Math.round(mActivity.getPreferences().getFontSize() * zoom));
     }
 

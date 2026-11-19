@@ -54,13 +54,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.features.NewTermuxSettings
-import com.newtermux.features.SshProfile
-import com.newtermux.features.SshProfileStore
-import com.newtermux.theme.WarpBackground
-import com.newtermux.theme.WarpCard
-import com.newtermux.theme.WarpTopBar
+import com.betermux.compose.BeTermuxComposeTheme
+import com.betermux.features.BeTermuxSettings
+import com.betermux.features.SshProfile
+import com.betermux.features.SshProfileStore
+import com.betermux.theme.WarpBackground
+import com.betermux.theme.WarpCard
+import com.betermux.theme.WarpTopBar
 
 /**
  * SSH connection / port-forward profile manager.
@@ -73,11 +73,11 @@ class SshManagerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            NewTermuxComposeTheme(this) {
+            BeTermuxComposeTheme(this) {
                 SshManagerScreen(
                     onBack = { finish() },
                     onConnect = { profile ->
-                        NewTermuxSettings.setPendingCommand(this, profile.buildCommand() + "\n")
+                        BeTermuxSettings.setPendingCommand(this, profile.buildCommand() + "\n")
                         finishAffinity()
                     },
                 )

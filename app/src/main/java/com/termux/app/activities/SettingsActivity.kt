@@ -53,24 +53,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import com.newtermux.ai.AiKeyStore
-import com.newtermux.ai.AiProviderKind
-import com.newtermux.blocks.BlockDensity
-import com.newtermux.compose.MenuItemDivider
-import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.compose.WarpThemeState
-import com.newtermux.compose.outlinedMenuCard
-import com.newtermux.theme.WarpChip
-import com.newtermux.features.NewTermuxSettings
-import com.newtermux.features.TextExpansionStore
-import com.newtermux.theme.WarpBackground
-import com.newtermux.theme.WarpCard
-import com.newtermux.theme.WarpSegmentedBar
-import com.newtermux.theme.WarpSegmentedItem
-import com.newtermux.theme.WarpTopBar
-import com.newtermux.update.UpdateHighlightsDialog
-import com.newtermux.update.UpdateHost
-import com.newtermux.update.UpdateManager
+import com.betermux.compose.MenuItemDivider
+import com.betermux.compose.BeTermuxComposeTheme
+import com.betermux.compose.WarpThemeState
+import com.betermux.compose.outlinedMenuCard
+import com.betermux.theme.WarpChip
+import com.betermux.features.BeTermuxSettings
+import com.betermux.features.TextExpansionStore
+import com.betermux.theme.WarpBackground
+import com.betermux.theme.WarpCard
+import com.betermux.theme.WarpSegmentedBar
+import com.betermux.theme.WarpSegmentedItem
+import com.betermux.theme.WarpTopBar
+import com.betermux.update.UpdateHighlightsDialog
+import com.betermux.update.UpdateHost
+import com.betermux.update.UpdateManager
 import com.termux.app.TermuxActivity
 import com.termux.shared.android.PermissionUtils
 import com.termux.app.TermuxInstaller
@@ -98,26 +95,24 @@ import java.io.FileOutputStream
 import java.io.InputStream
 
 /**
- * NewTermux settings, fully rewritten in Jetpack Compose (Phase 5), replacing
+ * BeTermux settings, fully rewritten in Jetpack Compose (Phase 5), replacing
  * the androidx.preference framework. Uses an internal back-stack to navigate
- * the root list, the NewTermux sections (Backup/Features/Text Expansion), and
+ * the root list, the BeTermux sections (Backup/Features/Text Expansion), and
  * the upstream Termux + plugin preference sub-screens, binding directly to the
  * existing SharedPreferences / data-store APIs.
  */
 class SettingsActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_ROUTE = "route"
-        const val ROUTE_AI_ASSISTANT = "ai_assistant"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val initialRoute = when (intent?.getStringExtra(EXTRA_ROUTE)) {
-            ROUTE_AI_ASSISTANT -> Route.AI_ASSISTANT
             else -> Route.ROOT
         }
         setContent {
-            NewTermuxComposeTheme(this) {
+            BeTermuxComposeTheme(this) {
                 SettingsRoot(activity = this, initialRoute = initialRoute)
             }
         }
@@ -125,7 +120,7 @@ class SettingsActivity : AppCompatActivity() {
 }
 
 private enum class Route {
-    ROOT, BACKUP, FEATURES, AI_ASSISTANT, TEXT_EXPANSION, UPDATES,
+    ROOT, BACKUP, FEATURES, TEXT_EXPANSION, UPDATES,
     TERMUX, TERMINAL_IO, TERMINAL_VIEW, DEBUGGING,
     PLUGIN_API, PLUGIN_FLOAT, PLUGIN_TASKER, PLUGIN_WIDGET,
 }
@@ -142,7 +137,6 @@ private fun SettingsRoot(activity: Activity, initialRoute: Route = Route.ROOT) {
         Route.ROOT -> RootScreen(activity, onBack = { pop() }, onNav = { push(it) })
         Route.BACKUP -> BackupScreen(onBack = { pop() })
         Route.FEATURES -> FeaturesScreen(activity, onBack = { pop() })
-        Route.AI_ASSISTANT -> AiAssistantScreen(onBack = { pop() })
         Route.TEXT_EXPANSION -> TextExpansionScreen(onBack = { pop() })
         Route.UPDATES -> UpdatesScreen(activity, onBack = { pop() })
         Route.TERMUX -> TermuxScreen(onBack = { pop() }, onNav = { push(it) })
@@ -223,35 +217,35 @@ private fun SwitchRow(title: String, summary: String?, checked: Boolean, enabled
     }
 }
 
-/** Bool switch backed by NewTermuxSettings.get/set. */
+/** Bool switch backed by BeTermuxSettings.get/set. */
 @Composable
 private fun NtSwitch(context: Context, key: String, title: String, summary: String?) {
-    var checked by remember { mutableStateOf(NewTermuxSettings.get(context, key)) }
+    var checked by remember { mutableStateOf(BeTermuxSettings.get(context, key)) }
     SwitchRow(title, summary, checked) {
         checked = it
-        NewTermuxSettings.set(context, key, it)
+        BeTermuxSettings.set(context, key, it)
     }
 }
 
 /**
- * "Keep alive in background" toggle. Backed by NewTermuxSettings, and when enabled it also asks
+ * "Keep alive in background" toggle. Backed by BeTermuxSettings, and when enabled it also asks
  * the user to allowlist the app from battery optimization (if not already exempt) since the wake
  * lock alone can still lose to Doze.
  */
 @Composable
 private fun KeepAliveSwitch(activity: Activity) {
     val context = LocalContext.current
-    var checked by remember { mutableStateOf(NewTermuxSettings.isKeepAliveInBackground(context)) }
+    var checked by remember { mutableStateOf(BeTermuxSettings.isKeepAliveInBackground(context)) }
     SwitchRow(
         title = "Keep alive in background",
         summary = "Hold a foreground wake lock while sessions run so the app survives when you launch a game. Turn off to save battery.",
         checked = checked,
     ) {
         checked = it
-        NewTermuxSettings.set(context, NewTermuxSettings.KEY_KEEP_ALIVE_BACKGROUND, it)
+        BeTermuxSettings.set(context, BeTermuxSettings.KEY_KEEP_ALIVE_BACKGROUND, it)
         if (it && !PermissionUtils.checkIfBatteryOptimizationsDisabled(context)) {
             // Mark prompted so the first-run nudge won't also fire, then request the exemption.
-            NewTermuxSettings.setBatteryOptPrompted(context, true)
+            BeTermuxSettings.setBatteryOptPrompted(context, true)
             runCatching { PermissionUtils.requestDisableBatteryOptimizations(activity) }
         }
     }
@@ -306,7 +300,7 @@ private fun RootScreen(activity: Activity, onBack: () -> Unit, onNav: (Route) ->
             NavRow("Dev Browser", "Built-in web preview with element inspector & DevTools") { launch(DevBrowserActivity::class.java) }
             HorizontalDivider()
             NavRow("Backup & Restore", "Back up or restore your Termux environment") { onNav(Route.BACKUP) }
-            NavRow("Features", "Toggle NewTermux features on or off") { onNav(Route.FEATURES) }
+            NavRow("Features", "Toggle BeTermux features on or off") { onNav(Route.FEATURES) }
             NavRow("Text Expansion", "Auto-expand short triggers to full commands") { onNav(Route.TEXT_EXPANSION) }
             HorizontalDivider()
             NavRow("Termux", "Terminal, keyboard and debugging options") { onNav(Route.TERMUX) }
@@ -423,20 +417,20 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
     SettingsScaffold("Features", onBack) { mod ->
         Column(modifier = mod) {
             CategoryHeader("Keyboard")
-            NtSwitch(context, NewTermuxSettings.KEY_KEYBOARD_SUGGESTIONS, "Keyboard Suggestions", "Show autocorrect and word suggestions bar")
-            NtSwitch(context, NewTermuxSettings.KEY_AUTOCORRECT, "Command Autocorrect", "Suggest corrections for mistyped commands (spacebar)")
-            NtSwitch(context, NewTermuxSettings.KEY_URL_DETECTION_ENABLED, "URL Detection", "Long-press a URL in the terminal to open or copy it")
-            NtSwitch(context, NewTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, "Show Extra Keys Toolbar", "Show the ESC, TAB, arrow key row above the keyboard")
+            NtSwitch(context, BeTermuxSettings.KEY_KEYBOARD_SUGGESTIONS, "Keyboard Suggestions", "Show autocorrect and word suggestions bar")
+            NtSwitch(context, BeTermuxSettings.KEY_AUTOCORRECT, "Command Autocorrect", "Suggest corrections for mistyped commands (spacebar)")
+            NtSwitch(context, BeTermuxSettings.KEY_URL_DETECTION_ENABLED, "URL Detection", "Long-press a URL in the terminal to open or copy it")
+            NtSwitch(context, BeTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, "Show Extra Keys Toolbar", "Show the ESC, TAB, arrow key row above the keyboard")
 
             CategoryHeader("Session Tabs")
-            NtSwitch(context, NewTermuxSettings.KEY_SESSION_TABS, "Show Session Tabs", "Show session tab chips at the top")
-            NtSwitch(context, NewTermuxSettings.KEY_SESSION_RENAME_ENABLED, "Session Renaming", "Long-press a session tab to rename it")
+            NtSwitch(context, BeTermuxSettings.KEY_SESSION_TABS, "Show Session Tabs", "Show session tab chips at the top")
+            NtSwitch(context, BeTermuxSettings.KEY_SESSION_RENAME_ENABLED, "Session Renaming", "Long-press a session tab to rename it")
 
             CategoryHeader("Display")
             UiZoomSelector(context)
 
             CategoryHeader("Startup")
-            NtSwitch(context, NewTermuxSettings.KEY_STARTUP_SCRIPT_ENABLED, "Startup Script", "Run ~/.termux/startup-script.sh in each new session")
+            NtSwitch(context, BeTermuxSettings.KEY_STARTUP_SCRIPT_ENABLED, "Startup Script", "Run ~/.termux/startup-script.sh in each new session")
             NavRow("Edit Startup Script", "Edit ~/.termux/startup-script.sh") { showScriptEditor = true }
 
             CategoryHeader("Shell")
@@ -444,7 +438,7 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
                 NavRow("Zsh", "✓ Installed", enabled = false) {}
             } else {
                 NavRow("Install Zsh", "Required for syntax highlighting and autosuggestions") {
-                    NewTermuxSettings.setPendingCommand(context, "pkg install zsh\n")
+                    BeTermuxSettings.setPendingCommand(context, "pkg install zsh\n")
                     activity.finish()
                 }
             }
@@ -476,47 +470,27 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
 
 @Composable
 private fun BlockViewSwitch(context: Context) {
-    var enabled by remember { mutableStateOf(NewTermuxSettings.isBlockViewEnabled(context)) }
+    var enabled by remember { mutableStateOf(BeTermuxSettings.isBlockViewEnabled(context)) }
     SwitchRow(
         title = "Block View",
         summary = "Group commands and outputs into navigable blocks with sticky headers",
         checked = enabled,
         onCheckedChange = {
             enabled = it
-            NewTermuxSettings.setBlockViewEnabled(context, it)
+            BeTermuxSettings.setBlockViewEnabled(context, it)
         }
     )
-}
-
-@Composable
-private fun BlockDensitySelector(context: Context) {
-    val options = remember { listOf(BlockDensity.COMFORT, BlockDensity.COMPACT) }
-    var selected by remember { mutableStateOf(BlockDensity.fromKey(NewTermuxSettings.getBlockDensity(context))) }
-    val selectedIndex = options.indexOf(selected).coerceAtLeast(0)
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-        Text("Block Density", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.size(6.dp))
-        WarpSegmentedBar(
-            items = options.map { WarpSegmentedItem(it.label) },
-            selectedIndex = selectedIndex,
-            onSelect = { index ->
-                val chosen = options.getOrNull(index) ?: return@WarpSegmentedBar
-                selected = chosen
-                NewTermuxSettings.setBlockDensity(context, chosen.key)
-            }
-        )
-    }
 }
 
 @Composable
 private fun InputPositionSelector(context: Context) {
     val options = remember {
         listOf(
-            NewTermuxSettings.INPUT_POSITION_BOTTOM to "Bottom (Default)",
-            NewTermuxSettings.INPUT_POSITION_TOP to "Top"
+            BeTermuxSettings.INPUT_POSITION_BOTTOM to "Bottom (Default)",
+            BeTermuxSettings.INPUT_POSITION_TOP to "Top"
         )
     }
-    var selected by remember { mutableStateOf(NewTermuxSettings.getInputBarPosition(context)) }
+    var selected by remember { mutableStateOf(BeTermuxSettings.getInputBarPosition(context)) }
     val selectedIndex = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
         Text("Input Bar Position", style = MaterialTheme.typography.titleSmall)
@@ -527,7 +501,7 @@ private fun InputPositionSelector(context: Context) {
             onSelect = { index ->
                 val chosen = options.getOrNull(index)?.first ?: return@WarpSegmentedBar
                 selected = chosen
-                NewTermuxSettings.setInputBarPosition(context, chosen)
+                BeTermuxSettings.setInputBarPosition(context, chosen)
             }
         )
     }
@@ -535,11 +509,11 @@ private fun InputPositionSelector(context: Context) {
 
 @Composable
 private fun UiZoomSelector(context: Context) {
-    var zoomPercent by remember { mutableStateOf(NewTermuxSettings.getUiZoomPercent(context)) }
+    var zoomPercent by remember { mutableStateOf(BeTermuxSettings.getUiZoomPercent(context)) }
     val presets = remember { listOf(85, 100, 115, 130) }
     fun updateZoom(next: Int) {
-        NewTermuxSettings.setUiZoomPercent(context, next)
-        zoomPercent = NewTermuxSettings.getUiZoomPercent(context)
+        BeTermuxSettings.setUiZoomPercent(context, next)
+        zoomPercent = BeTermuxSettings.getUiZoomPercent(context)
         WarpThemeState.notifyChanged()
     }
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
@@ -572,7 +546,7 @@ private fun UiZoomSelector(context: Context) {
 
 @Composable
 private fun ZshPluginsSwitch(context: Context, zshInstalled: Boolean, onChanged: () -> Unit) {
-    var checked by remember { mutableStateOf(NewTermuxSettings.isZshPluginsEnabled(context)) }
+    var checked by remember { mutableStateOf(BeTermuxSettings.isZshPluginsEnabled(context)) }
     SwitchRow(
         title = "Shell Enhancements",
         summary = if (zshInstalled) "Autosuggestions + syntax highlighting (requires Zsh)" else "Install Zsh first to enable this",
@@ -580,7 +554,7 @@ private fun ZshPluginsSwitch(context: Context, zshInstalled: Boolean, onChanged:
         enabled = zshInstalled,
     ) {
         checked = it
-        NewTermuxSettings.set(context, NewTermuxSettings.KEY_ZSH_PLUGINS, it)
+        BeTermuxSettings.set(context, BeTermuxSettings.KEY_ZSH_PLUGINS, it)
         Thread { TermuxInstaller.setZshPlugins(context, it) }.start()
         onChanged()
     }
@@ -614,173 +588,12 @@ private fun StartupScriptEditorDialog(context: Context, onDismiss: () -> Unit) {
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
-
-// ---------------------------------------------------------------- AI Assistant
-
-@Composable
-private fun AiAssistantScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var enabled by remember { mutableStateOf(NewTermuxSettings.isAiEnabled(context)) }
-    var provider by remember { mutableStateOf(AiProviderKind.fromId(NewTermuxSettings.getAiProvider(context))) }
-    var model by remember { mutableStateOf(NewTermuxSettings.getAiModel(context)) }
-    var baseUrl by remember { mutableStateOf(NewTermuxSettings.getAiBaseUrl(context)) }
-    var maxTokens by remember { mutableStateOf(NewTermuxSettings.getAiMaxTokens(context)) }
-    var apiKeyInput by remember { mutableStateOf("") }
-    var keyHint by remember(provider) { mutableStateOf(AiKeyStore.maskedKeyHint(context, provider)) }
-
-    SettingsScaffold("AI Assistant", onBack) { mod ->
-        Column(modifier = mod) {
-            SwitchRow(
-                title = "Enable Inline AI",
-                summary = "Allows Explain error and Propose fix on command blocks. Accepted commands only pre-fill the input bar and never auto-execute.",
-                checked = enabled,
-            ) {
-                enabled = it
-                NewTermuxSettings.setAiEnabled(context, it)
-            }
-
-            HorizontalDivider()
-            CategoryHeader("Provider")
-
-            val providers = remember { AiProviderKind.entries }
-            WarpSegmentedBar(
-                items = providers.map {
-                    WarpSegmentedItem(
-                        when (it) {
-                            AiProviderKind.OPENAI_COMPATIBLE -> "OpenAI"
-                            AiProviderKind.ANTHROPIC -> "Anthropic"
-                            AiProviderKind.GEMINI -> "Gemini"
-                        }
-                    )
-                },
-                selectedIndex = providers.indexOf(provider).coerceAtLeast(0),
-                onSelect = { idx ->
-                    val chosen = providers[idx]
-                    provider = chosen
-                    NewTermuxSettings.setAiProvider(context, chosen.id)
-                    keyHint = AiKeyStore.maskedKeyHint(context, chosen)
-                },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-            )
-
-            CategoryHeader("API Key (${provider.displayName})")
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                Text(
-                    text = if (keyHint.isNotEmpty()) "Status: Key saved ($keyHint)" else "Status: Offline / No API key stored",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (keyHint.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.size(8.dp))
-                OutlinedTextField(
-                    value = apiKeyInput,
-                    onValueChange = { apiKeyInput = it },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    label = { Text("Paste API key") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.size(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    WarpChip(
-                        label = "Save Key",
-                        selected = true,
-                        onClick = {
-                            if (apiKeyInput.isNotBlank()) {
-                                AiKeyStore.setApiKey(context, provider, apiKeyInput)
-                                keyHint = AiKeyStore.maskedKeyHint(context, provider)
-                                apiKeyInput = ""
-                                Toast.makeText(context, "API key saved securely", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-                    if (keyHint.isNotEmpty()) {
-                        WarpChip(
-                            label = "Clear Key",
-                            onClick = {
-                                AiKeyStore.setApiKey(context, provider, "")
-                                keyHint = ""
-                                apiKeyInput = ""
-                                Toast.makeText(context, "API key cleared", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    }
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            CategoryHeader("Model & Endpoint")
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                OutlinedTextField(
-                    value = model,
-                    onValueChange = {
-                        model = it
-                        NewTermuxSettings.setAiModel(context, it)
-                    },
-                    singleLine = true,
-                    label = { Text("Model (blank = ${provider.defaultModel})") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.size(8.dp))
-                OutlinedTextField(
-                    value = baseUrl,
-                    onValueChange = {
-                        baseUrl = it
-                        NewTermuxSettings.setAiBaseUrl(context, it)
-                    },
-                    singleLine = true,
-                    label = { Text("Base URL (blank = ${provider.defaultBaseUrl})") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            CategoryHeader("Guardrails")
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Max Output Tokens", style = MaterialTheme.typography.titleSmall)
-                    Text("$maxTokens", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(Modifier.size(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    fun updateTokens(next: Int) {
-                        NewTermuxSettings.setAiMaxTokens(context, next)
-                        maxTokens = NewTermuxSettings.getAiMaxTokens(context)
-                    }
-                    WarpChip(label = "−", onClick = { updateTokens(maxTokens - 256) })
-                    for (preset in listOf(512, 1024, 2048, 4096)) {
-                        WarpChip(
-                            label = "$preset",
-                            selected = maxTokens == preset,
-                            onClick = { updateTokens(preset) }
-                        )
-                    }
-                    WarpChip(label = "+", onClick = { updateTokens(maxTokens + 256) })
-                }
-                Spacer(Modifier.size(6.dp))
-                Text(
-                    "0 automatic retries (manual Retry only) · max 1 concurrent request (cancels prior request on new action).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------- Text Expansion
 
 @Composable
 private fun TextExpansionScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    var enabled by remember { mutableStateOf(NewTermuxSettings.isTextExpansionEnabled(context)) }
+    var enabled by remember { mutableStateOf(BeTermuxSettings.isTextExpansionEnabled(context)) }
     val items = remember { mutableStateListOf<TextExpansionStore.TextExpansion>().apply { addAll(TextExpansionStore.load(context)) } }
     var editIndex by remember { mutableStateOf<Int?>(null) }
     var showEditor by remember { mutableStateOf(false) }
@@ -791,7 +604,7 @@ private fun TextExpansionScreen(onBack: () -> Unit) {
         Column(modifier = mod) {
             SwitchRow("Enable Text Expansion", "Auto-expand short triggers to full commands", enabled) {
                 enabled = it
-                NewTermuxSettings.set(context, NewTermuxSettings.KEY_TEXT_EXPANSION_ENABLED, it)
+                BeTermuxSettings.set(context, BeTermuxSettings.KEY_TEXT_EXPANSION_ENABLED, it)
             }
             HorizontalDivider()
             NavRow("Add New", "Create a new expansion") { editIndex = null; showEditor = true }

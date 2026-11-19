@@ -344,7 +344,7 @@ public final class TerminalView extends View {
                 outAttrs.inputType = InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
             } else {
                 if (mKeyboardSuggestionsEnabled) {
-                    // NewTermux: keyboard suggestion strip + autocorrect, like a text field.
+                    // BeTermux: keyboard suggestion strip + autocorrect, like a text field.
                     outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
                 } else {
                     // Original raw input — no keyboard suggestions.

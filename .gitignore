@@ -38,7 +38,7 @@ local.properties
 ehthumbs.db
 Thumbs.db
 
-# NewTermux additions
+# BeTermux additions
 *.keystore
 *.jks
 local.properties
@@ -46,4 +46,4 @@ local.properties
 .kotlin/
 app/release/
 bootstrap-output/
-newtermux-release.jks
+betermux-release.jks

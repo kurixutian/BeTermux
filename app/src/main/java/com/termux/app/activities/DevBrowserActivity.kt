@@ -131,11 +131,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.features.LocalhostServerManager
-import com.newtermux.theme.LocalWarpPalette
-import com.newtermux.theme.WarpBackground
-import com.newtermux.theme.warpSurface
+import com.betermux.compose.BeTermuxComposeTheme
+import com.betermux.features.LocalhostServerManager
+import com.betermux.theme.LocalWarpPalette
+import com.betermux.theme.WarpBackground
+import com.betermux.theme.warpSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -154,7 +154,7 @@ data class HistoryEntry(
     val timestamp: Long
 )
 
-private const val PREFS_BROWSER = "newtermux_dev_browser"
+private const val PREFS_BROWSER = "betermux_dev_browser"
 private const val PREF_KEY_HISTORY = "history_json"
 private const val PREF_KEY_DESKTOP_DEFAULT = "desktop_default"
 private const val PREF_KEY_JS_ENABLED = "js_enabled"
@@ -245,7 +245,7 @@ class DevBrowserActivity : AppCompatActivity() {
             ?: intent?.getStringExtra("INITIAL_URL")
             ?: "https://www.google.com"
         setContent {
-            NewTermuxComposeTheme(this) {
+            BeTermuxComposeTheme(this) {
                 EmbeddedDevBrowser(
                     initialUrl = startUrl,
                     onClose = { finish() }
@@ -271,7 +271,7 @@ object DevBrowserBridge {
         onOpenLocalhostTab: Runnable? = null,
     ) {
         composeView.setContent {
-            NewTermuxComposeTheme(context) {
+            BeTermuxComposeTheme(context) {
                 EmbeddedDevBrowser(
                     initialUrl = initialUrl.ifBlank { "https://www.google.com" },
                     onTitleChanged = { onTitleChanged.accept(it) },

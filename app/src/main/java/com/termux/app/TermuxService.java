@@ -454,6 +454,13 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                 executionCommand.shellName = s.name;
                 TermuxSession newSession = createTermuxSessionInternal(executionCommand, true);
 
+                if (newSession != null && s.workspace != null && !s.workspace.isEmpty()) {
+                    TerminalSession restoredTerminalSession = newSession.getTerminalSession();
+                    if (restoredTerminalSession != null) {
+                        WorkspaceManager.associateSession(restoredTerminalSession.mHandle, s.workspace);
+                    }
+                }
+
                 if (newSession != null && s.resumeCommand != null && !s.resumeCommand.trim().isEmpty()) {
                     final String cmd = s.resumeCommand.trim();
                     final TermuxSession ts = newSession;

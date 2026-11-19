@@ -2884,15 +2884,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void closeSessionNow(TerminalSession session) {
         if (session == null) return;
-        if (isWorkspaceHibernationControllerReady()) {
-            String workspaceId = resolveWorkspaceIdForSession(session);
-            getHibernationCoordinator().closeSession(
-                workspaceId,
-                session,
-                () -> finishAndRemoveClosedSession(session)
-            );
-            return;
-        }
         finishAndRemoveClosedSession(session);
     }
 
@@ -3514,20 +3505,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         b.setMessage(R.string.title_confirm_kill_process);
         b.setPositiveButton(android.R.string.yes, (dialog, id) -> {
             dialog.dismiss();
-            if (isWorkspaceHibernationControllerReady()) {
-                String workspaceId = resolveWorkspaceIdForSession(session);
-                getHibernationCoordinator().closeSession(
-                    workspaceId,
-                    session,
-                    () -> {
-                        if (!isFinishing() && !isDestroyed()) {
-                            session.finishIfRunning();
-                        }
-                    }
-                );
-            } else {
-                session.finishIfRunning();
-            }
+            session.finishIfRunning();
         });
         b.setNegativeButton(android.R.string.no, null);
         b.show();

@@ -73,19 +73,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.newtermux.compose.MenuItemDivider
-import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.compose.outlinedMenuCard
-import com.newtermux.deck.DeckBridge
-import com.newtermux.features.ColorPickerDialog
-import com.newtermux.features.NewTermuxColorTheme
-import com.newtermux.features.NewTermuxSettings
-import com.newtermux.features.NewTermuxTheme
-import com.newtermux.theme.BackgroundImageStore
-import com.newtermux.theme.LocalWarpPalette
-import com.newtermux.theme.WarpBackground
-import com.newtermux.theme.WarpCard
-import com.newtermux.theme.WarpTopBar
+import com.betermux.compose.MenuItemDivider
+import com.betermux.compose.BeTermuxComposeTheme
+import com.betermux.compose.outlinedMenuCard
+import com.betermux.deck.DeckBridge
+import com.betermux.features.ColorPickerDialog
+import com.betermux.features.BeTermuxColorTheme
+import com.betermux.features.BeTermuxSettings
+import com.betermux.features.BeTermuxTheme
+import com.betermux.theme.BackgroundImageStore
+import com.betermux.theme.LocalWarpPalette
+import com.betermux.theme.WarpBackground
+import com.betermux.theme.WarpCard
+import com.betermux.theme.WarpTopBar
 import kotlinx.coroutines.launch
 
 /**
@@ -100,7 +100,7 @@ class ThemePickerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            NewTermuxComposeTheme(this) {
+            BeTermuxComposeTheme(this) {
                 ThemePickerScreen(onBack = { finish() })
             }
         }
@@ -112,13 +112,13 @@ class ThemePickerActivity : AppCompatActivity() {
 private fun ThemePickerScreen(onBack: () -> Unit) {
     val context = LocalContext.current
 
-    var activeTheme by remember { mutableStateOf(NewTermuxColorTheme.getCurrentTheme(context)) }
-    var activeAccent by remember { mutableIntStateOf(NewTermuxTheme.getAccentColor(context)) }
-    var portraitLayout by remember { mutableStateOf(NewTermuxSettings.getLayout(context, false)) }
-    var landscapeLayout by remember { mutableStateOf(NewTermuxSettings.getLayout(context, true)) }
+    var activeTheme by remember { mutableStateOf(BeTermuxColorTheme.getCurrentTheme(context)) }
+    var activeAccent by remember { mutableIntStateOf(BeTermuxTheme.getAccentColor(context)) }
+    var portraitLayout by remember { mutableStateOf(BeTermuxSettings.getLayout(context, false)) }
+    var landscapeLayout by remember { mutableStateOf(BeTermuxSettings.getLayout(context, true)) }
     val hasSecondScreen = remember { DeckBridge.hasSecondaryDisplay(context) }
     val landscapeOptions = remember(hasSecondScreen) {
-        if (hasSecondScreen) LAYOUT_OPTIONS + (NewTermuxSettings.LAYOUT_DUAL_SCREEN to "Dual screen") else LAYOUT_OPTIONS
+        if (hasSecondScreen) LAYOUT_OPTIONS + (BeTermuxSettings.LAYOUT_DUAL_SCREEN to "Dual screen") else LAYOUT_OPTIONS
     }
     var overflowOpen by remember { mutableStateOf(false) }
 
@@ -127,9 +127,9 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
     var editorKeys by remember { mutableStateOf<List<Pair<String, String>>?>(null) } // key -> label
 
     val terminalKeys = remember {
-        NewTermuxColorTheme.THEME_KEYS.filter { it != NewTermuxColorTheme.THEME_KEY_CUSTOM }
+        BeTermuxColorTheme.THEME_KEYS.filter { it != BeTermuxColorTheme.THEME_KEY_CUSTOM }
     }
-    val accentColors = remember { NewTermuxTheme.COLORS.toList() }
+    val accentColors = remember { BeTermuxTheme.COLORS.toList() }
     val scope = rememberCoroutineScope()
     var hasBgImage by remember { mutableStateOf(BackgroundImageStore.hasImage(context)) }
     var scrimAlpha by remember { mutableFloatStateOf(BackgroundImageStore.getScrimAlpha(context)) }
@@ -163,14 +163,14 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
 
             item(span = { GridItemSpan(maxLineSpan) }) {
                 LayoutChoiceRow("Portrait", LAYOUT_OPTIONS, portraitLayout, activeAccent) {
-                    NewTermuxSettings.setLayout(context, false, it)
+                    BeTermuxSettings.setLayout(context, false, it)
                     portraitLayout = it
                 }
             }
 
             item(span = { GridItemSpan(maxLineSpan) }) {
                 LayoutChoiceRow("Landscape", landscapeOptions, landscapeLayout, activeAccent) {
-                    NewTermuxSettings.setLayout(context, true, it)
+                    BeTermuxSettings.setLayout(context, true, it)
                     landscapeLayout = it
                 }
             }
@@ -195,7 +195,7 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                     active = key == activeTheme,
                     accent = activeAccent,
                     onClick = {
-                        NewTermuxColorTheme.applyTheme(context, key)
+                        BeTermuxColorTheme.applyTheme(context, key)
                         activeTheme = key
                     },
                 )
@@ -204,7 +204,7 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 WarpCard(
                     modifier = Modifier.fillMaxWidth(),
-                    selected = activeTheme == NewTermuxColorTheme.THEME_KEY_CUSTOM,
+                    selected = activeTheme == BeTermuxColorTheme.THEME_KEY_CUSTOM,
                     onClick = { showScope = true },
                 ) {
                     Row(
@@ -221,7 +221,7 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                                 color = LocalWarpPalette.current.textPrimary,
                             )
                             Text(
-                                if (activeTheme == NewTermuxColorTheme.THEME_KEY_CUSTOM) "Active (~/.termux/colors.properties)"
+                                if (activeTheme == BeTermuxColorTheme.THEME_KEY_CUSTOM) "Active (~/.termux/colors.properties)"
                                 else "Fine-tune individual ANSI slots",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = LocalWarpPalette.current.textSecondary,
@@ -318,16 +318,16 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                     color = color,
                     active = color == activeAccent,
                     isCustomSlot = false,
-                    label = NewTermuxTheme.getColorName(color),
+                    label = BeTermuxTheme.getColorName(color),
                     onClick = {
-                        NewTermuxTheme.setAccentColor(context, color)
+                        BeTermuxTheme.setAccentColor(context, color)
                         activeAccent = color
                     },
                 )
             }
 
             item {
-                val customActive = NewTermuxTheme.isCustomAccentActive(context)
+                val customActive = BeTermuxTheme.isCustomAccentActive(context)
                 AccentSwatch(
                     color = if (customActive) activeAccent else 0xFF666666.toInt(),
                     active = customActive,
@@ -335,9 +335,9 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
                     label = "Custom…",
                     onClick = {
                         ColorPickerDialog(context)
-                            .setInitialColor(NewTermuxTheme.getAccentColor(context))
+                            .setInitialColor(BeTermuxTheme.getAccentColor(context))
                             .setOnColorSelectedListener { picked ->
-                                NewTermuxTheme.setAccentColor(context, picked)
+                                BeTermuxTheme.setAccentColor(context, picked)
                                 activeAccent = picked
                             }
                             .show()
@@ -391,9 +391,9 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
             keys = keys,
             onDismiss = { editorKeys = null },
             onApply = { colorMap ->
-                val base = NewTermuxColorTheme.getCustomThemeContent(context)
-                NewTermuxColorTheme.applyCustomTheme(context, buildThemeContent(base, colorMap))
-                activeTheme = NewTermuxColorTheme.THEME_KEY_CUSTOM
+                val base = BeTermuxColorTheme.getCustomThemeContent(context)
+                BeTermuxColorTheme.applyCustomTheme(context, buildThemeContent(base, colorMap))
+                activeTheme = BeTermuxColorTheme.THEME_KEY_CUSTOM
                 editorKeys = null
             },
         )
@@ -401,8 +401,8 @@ private fun ThemePickerScreen(onBack: () -> Unit) {
 }
 
 private val LAYOUT_OPTIONS = listOf(
-    NewTermuxSettings.LAYOUT_STANDARD to "Standard",
-    NewTermuxSettings.LAYOUT_STATUS_LINE to "Status line",
+    BeTermuxSettings.LAYOUT_STANDARD to "Standard",
+    BeTermuxSettings.LAYOUT_STATUS_LINE to "Status line",
 )
 
 @Composable
@@ -459,13 +459,13 @@ private fun TerminalThemeCard(key: String, active: Boolean, accent: Int, onClick
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             TerminalPreview(
-                colors = NewTermuxColorTheme.getPreviewColors(key),
+                colors = BeTermuxColorTheme.getPreviewColors(key),
                 active = active,
                 accent = accent,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1.3f).padding(4.dp),
             )
             Text(
-                NewTermuxColorTheme.getThemeName(key),
+                BeTermuxColorTheme.getThemeName(key),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -598,7 +598,7 @@ private fun CustomThemeEditorDialog(
     onApply: (Map<String, Int>) -> Unit,
 ) {
     val context = LocalContext.current
-    val base = remember { NewTermuxColorTheme.getCustomThemeContent(context) }
+    val base = remember { BeTermuxColorTheme.getCustomThemeContent(context) }
     val colorMap = remember {
         mutableStateMapOf<String, Int>().apply { putAll(parseThemeContent(base, keys.map { it.first })) }
     }

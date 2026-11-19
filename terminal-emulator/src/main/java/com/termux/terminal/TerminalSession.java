@@ -271,7 +271,10 @@ public final class TerminalSession extends TerminalOutput {
         // Stop the reader and writer threads, and close the I/O streams
         mTerminalToProcessIOQueue.close();
         mProcessToTerminalIOQueue.close();
-        JNI.close(mTerminalFileDescriptor);
+        // Guard: fd 0 is stdin (unset when initializeEmulator never ran); closing it would break the app.
+        if (mTerminalFileDescriptor > 0) {
+            JNI.close(mTerminalFileDescriptor);
+        }
     }
 
     @Override
@@ -279,8 +282,10 @@ public final class TerminalSession extends TerminalOutput {
         mClient.onTitleChanged(this);
     }
 
+    // pid 0 = not yet started (initializeEmulator never ran); treat as not running so
+    // finishIfRunning() never issues kill(0, SIGKILL) which would kill the app's own process group.
     public synchronized boolean isRunning() {
-        return mShellPid != -1;
+        return mShellPid > 0;
     }
 
     /** Only valid if not {@link #isRunning()}. */

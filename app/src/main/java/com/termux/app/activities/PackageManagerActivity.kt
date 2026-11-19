@@ -43,13 +43,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.features.NewTermuxSettings
-import com.newtermux.theme.WarpBackground
-import com.newtermux.theme.WarpCard
-import com.newtermux.theme.WarpSegmentedBar
-import com.newtermux.theme.WarpSegmentedItem
-import com.newtermux.theme.WarpTopBar
+import com.betermux.compose.BeTermuxComposeTheme
+import com.betermux.features.BeTermuxSettings
+import com.betermux.theme.WarpBackground
+import com.betermux.theme.WarpCard
+import com.betermux.theme.WarpSegmentedBar
+import com.betermux.theme.WarpSegmentedItem
+import com.betermux.theme.WarpTopBar
 import com.termux.app.TermuxActivity
 import com.termux.shared.termux.TermuxConstants
 import kotlinx.coroutines.Dispatchers
@@ -66,11 +66,11 @@ class PackageManagerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            NewTermuxComposeTheme(this) {
+            BeTermuxComposeTheme(this) {
                 PackageManagerScreen(
                     onBack = { finish() },
                     onRunCommand = { cmd ->
-                        NewTermuxSettings.setPendingCommand(this, cmd)
+                        BeTermuxSettings.setPendingCommand(this, cmd)
                         val intent = Intent(this, TermuxActivity::class.java)
                         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         startActivity(intent)

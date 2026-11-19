@@ -202,6 +202,19 @@ class WorkspaceHibernationController(
                         }
                     }
 
+                    // Union any process forked into a recorded SID after sleep so it is
+                    // resumed too instead of staying SIGSTOPped (ghost process).
+                    // findSessionProcesses already filters uid==ownerUid, sid==target sid,
+                    // pgid>0, pid>1, so every returned pid is safe to SIGCONT.
+                    for (sid in sidToPids.keys.toList()) {
+                        val enumRes = ProcSessionController.findSessionProcesses(sid, ownerUid, ops)
+                        if (enumRes is ProcEnumerationResult.Success) {
+                            val current = sidToPids[sid] ?: continue
+                            val extra = enumRes.processes.map { it.pid }.filter { pid -> pid !in current }
+                            sidToPids[sid] = current + extra
+                        }
+                    }
+
                     var ok = true
                     for ((sid, pids) in sidToPids) {
                         val res = ProcSessionController.resumeSession(pids, sid, ownerUid, ops)
@@ -269,6 +282,19 @@ class WorkspaceHibernationController(
                     val info = ProcSessionController.parseProcStat(pid, stat, uid) ?: continue
                     if (info.sid > 0 && info.pgid > 0) {
                         sidToPids.getOrPut(info.sid) { ArrayList() }.add(pid)
+                    }
+                }
+
+                // Union any process forked into a recorded SID after sleep so it is
+                // terminated too instead of leaking as a stopped ghost process.
+                // findSessionProcesses already filters uid==ownerUid, sid==target sid,
+                // pgid>0, pid>1, so every returned pid is safe to SIGTERM/SIGKILL.
+                for (sid in sidToPids.keys.toList()) {
+                    val enumRes = ProcSessionController.findSessionProcesses(sid, ownerUid, ops)
+                    if (enumRes is ProcEnumerationResult.Success) {
+                        val current = sidToPids[sid] ?: continue
+                        val extra = enumRes.processes.map { it.pid }.filter { pid -> pid !in current }
+                        current.addAll(extra)
                     }
                 }
 

@@ -49,7 +49,7 @@
         android:requestLegacyExternalStorage="true"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="false"
-        android:theme="@style/Theme.NewTermux"
+        android:theme="@style/Theme.BeTermux"
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="m">
 
@@ -61,7 +61,7 @@
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.NewTermux"
+            android:theme="@style/Theme.BeTermux"
             tools:targetApi="n">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -105,42 +105,42 @@
             android:name=".app.activities.SettingsActivity"
             android:exported="true"
             android:label="@string/title_activity_termux_settings"
-            android:theme="@style/Theme.NewTermux" />
+            android:theme="@style/Theme.BeTermux" />
 
         <activity
             android:name=".app.activities.PackageManagerActivity"
             android:exported="false"
             android:label="Package Manager"
             android:parentActivityName=".app.activities.SettingsActivity"
-            android:theme="@style/Theme.NewTermux" />
+            android:theme="@style/Theme.BeTermux" />
 
         <activity
             android:name=".app.activities.SshManagerActivity"
             android:exported="false"
             android:label="SSH Manager"
             android:parentActivityName=".app.activities.SettingsActivity"
-            android:theme="@style/Theme.NewTermux" />
+            android:theme="@style/Theme.BeTermux" />
 
         <activity
             android:name=".app.activities.FileManagerActivity"
             android:exported="false"
             android:label="File Manager"
             android:parentActivityName=".app.activities.SettingsActivity"
-            android:theme="@style/Theme.NewTermux" />
+            android:theme="@style/Theme.BeTermux" />
 
         <activity
             android:name=".app.activities.DevBrowserActivity"
             android:exported="false"
             android:label="Dev Browser"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:theme="@style/Theme.NewTermux" />
+            android:theme="@style/Theme.BeTermux" />
 
         <activity
             android:name=".app.activities.ThemePickerActivity"
             android:exported="false"
             android:label="Themes &amp; Colors"
             android:parentActivityName=".app.activities.SettingsActivity"
-            android:theme="@style/Theme.NewTermux" />
+            android:theme="@style/Theme.BeTermux" />
 
         <activity
             android:name=".shared.activities.ReportActivity"
@@ -282,13 +282,13 @@
 
         <!-- In-app updater: serves the downloaded APK to the package installer -->
         <provider
-            android:name="com.newtermux.update.UpdateFileProvider"
+            android:name="com.betermux.update.UpdateFileProvider"
             android:authorities="${applicationId}.updates"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/newtermux_update_paths" />
+                android:resource="@xml/betermux_update_paths" />
         </provider>
 
         <!-- File manager: sharing and external viewer integration -->

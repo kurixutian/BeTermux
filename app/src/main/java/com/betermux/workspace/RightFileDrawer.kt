@@ -85,6 +85,7 @@ import com.betermux.theme.LocalWarpPalette
 import com.betermux.theme.rememberReduceMotion
 import com.termux.app.activities.FileCategory
 import com.termux.app.activities.categorizeFile
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -96,6 +97,13 @@ private enum class CreateEntryKind {
 private data class PendingCreateTarget(
     val parentDir: File,
     val kind: CreateEntryKind
+)
+
+private data class DeletedEntry(
+    val path: String,
+    val name: String,
+    val parentDir: File,
+    val isDirectory: Boolean
 )
 
 /**
@@ -131,6 +139,7 @@ fun RightFileDrawer(
     var rootError by remember(rootPath) { mutableStateOf<FileTreeError?>(null) }
     var pendingCreate by remember { mutableStateOf<PendingCreateTarget?>(null) }
     var pendingDelete by remember { mutableStateOf<FileTreeNode?>(null) }
+    var pendingUndo by remember { mutableStateOf<DeletedEntry?>(null) }
 
     suspend fun loadRootPreservingExpanded(expandedSnapshot: Set<String>) {
         if (rootPath.isBlank()) {
@@ -182,6 +191,14 @@ fun RightFileDrawer(
     LaunchedEffect(rootPath, showHidden, reloadNonce) {
         val expandedSnapshot = collectExpandedPaths(rootNodes)
         loadRootPreservingExpanded(expandedSnapshot)
+    }
+
+    // Auto-dismiss the delete-undo overlay after ~4s unless the user taps Undo first.
+    LaunchedEffect(pendingUndo) {
+        if (pendingUndo != null) {
+            delay(4000)
+            if (pendingUndo != null) pendingUndo = null
+        }
     }
 
     fun expandOrRetryNode(node: FileTreeNode) {
@@ -542,6 +559,60 @@ fun RightFileDrawer(
         }
     }
 
+    // Transient undo overlay shown at the bottom of the drawer after a delete.
+    pendingUndo?.let { deleted ->
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .background(palette.surfaceElevated, shape)
+                    .border(1.dp, palette.borderSubtle, shape)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("right_drawer_undo"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Deleted ${deleted.name}",
+                    color = palette.textPrimary,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            val result = when (deleted.isDirectory) {
+                                true -> FileTreeRepository.createDirectory(deleted.parentDir, deleted.name)
+                                false -> FileTreeRepository.createFile(deleted.parentDir, deleted.name)
+                            }
+                            if (result.isSuccess) {
+                                val parentPath = deleted.parentDir.absolutePath
+                                if (parentPath != rootPath) {
+                                    rootNodes = updateTreeNode(rootNodes, parentPath) {
+                                        it.copy(isExpanded = true)
+                                    }
+                                }
+                                pendingUndo = null
+                                reloadNonce += 1
+                            } else {
+                                val msg = result.exceptionOrNull()?.message ?: "Failed to restore ${deleted.name}"
+                                onShowMessage?.invoke(msg)
+                                pendingUndo = null
+                            }
+                        }
+                    },
+                    modifier = Modifier.testTag("right_drawer_undo_button")
+                ) {
+                    Text("Undo")
+                }
+            }
+        }
+    }
+
     val createTarget = pendingCreate
     if (createTarget != null) {
         CreateEntryDialog(
@@ -573,6 +644,12 @@ fun RightFileDrawer(
             onConfirm = {
                 val result = FileTreeRepository.deleteEntry(File(deleteTarget.path))
                 if (result.isSuccess) {
+                    pendingUndo = DeletedEntry(
+                        path = deleteTarget.path,
+                        name = deleteTarget.name,
+                        parentDir = File(deleteTarget.path).parentFile ?: File(rootPath),
+                        isDirectory = deleteTarget.isDirectory
+                    )
                     pendingDelete = null
                     reloadNonce += 1
                 } else {
