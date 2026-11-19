@@ -102,7 +102,7 @@ class WorkspaceHostBridge(
                 }
 
                 val workspacesEnabled = BeTermuxSettings.isWorkspacesEnabled(activity)
-                val hibernationEnabled = BeTermuxSettings.isWorkspaceHibernationEnabled(activity)
+                val hibernationEnabled = activity.isWorkspaceHibernationControllerReady()
                 val rightExplorerEnabled = BeTermuxSettings.isDualSidebarsEnabled(activity) &&
                     BeTermuxSettings.isRightFileExplorerEnabled(activity)
 
@@ -278,6 +278,63 @@ class WorkspaceHostBridge(
         activity.termuxService?.termuxSessions
             ?.mapNotNull { it?.terminalSession }
             ?.firstOrNull { it.mHandle == handle }
+}
+
+data class WorkspaceRemovalPlan(
+    val terminateBeforeSwitch: List<String>,
+    val ensureActiveWorkspaceSession: Boolean,
+    val terminateAfterSwitch: List<String>,
+    val targetActiveWorkspaceId: String
+)
+
+/**
+ * Pure session-transition planner for workspace removal so slot-freeing closures happen
+ * before replacement session creation while preventing accidental zero-session activity exit.
+ */
+object WorkspaceRemovalPolicy {
+    @JvmStatic
+    fun planRemoval(
+        removedWorkspaceId: String,
+        previousActiveWorkspaceId: String,
+        targetActiveWorkspaceId: String,
+        removedHandles: List<String>,
+        liveHandles: List<String>,
+        targetActiveWorkspaceHandlesAfterRemoval: Set<String>,
+        currentSessionHandle: String?,
+        terminateSessions: Boolean
+    ): WorkspaceRemovalPlan {
+        val wasActiveWorkspace = removedWorkspaceId == previousActiveWorkspaceId
+        val liveSet = liveHandles.toHashSet()
+        val toClose = if (terminateSessions) {
+            removedHandles.distinct().filter { it in liveSet }
+        } else {
+            emptyList()
+        }
+        val toCloseSet = toClose.toHashSet()
+        val remainingOutsideClose = liveHandles.filter { it !in toCloseSet }
+        val currentClosed = currentSessionHandle != null && currentSessionHandle in toCloseSet
+        val currentInTargetAfter = currentSessionHandle != null &&
+            currentSessionHandle in liveSet &&
+            !currentClosed &&
+            currentSessionHandle in targetActiveWorkspaceHandlesAfterRemoval
+        val needsSessionInTarget = wasActiveWorkspace && !currentInTargetAfter || currentClosed
+
+        return if (remainingOutsideClose.isNotEmpty() || toClose.isEmpty()) {
+            WorkspaceRemovalPlan(
+                terminateBeforeSwitch = toClose,
+                ensureActiveWorkspaceSession = needsSessionInTarget,
+                terminateAfterSwitch = emptyList(),
+                targetActiveWorkspaceId = targetActiveWorkspaceId
+            )
+        } else {
+            WorkspaceRemovalPlan(
+                terminateBeforeSwitch = toClose.dropLast(1),
+                ensureActiveWorkspaceSession = true,
+                terminateAfterSwitch = listOf(toClose.last()),
+                targetActiveWorkspaceId = targetActiveWorkspaceId
+            )
+        }
+    }
 }
 
 @Composable

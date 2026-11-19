@@ -94,6 +94,8 @@ import com.betermux.theme.BackgroundImageStore;
 import com.betermux.workspace.ProjectWorkspace;
 import com.betermux.workspace.WorkspaceManager;
 import com.betermux.workspace.WorkspaceModelsKt;
+import com.betermux.workspace.WorkspaceRemovalPlan;
+import com.betermux.workspace.WorkspaceRemovalPolicy;
 import com.betermux.workspace.WorkspaceSessionPolicy;
 import com.betermux.workspace.WorkspaceSleepState;
 import com.termux.app.terminal.MiniTerminalPipView;
@@ -2171,6 +2173,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     /** Update the horizontal session tabs row (terminals, dev browsers, files, localhost). */
     public void updateSessionTabs() {
+        syncSessionTabsBarVisibility();
         if (mTermuxService == null) return;
         List<TermuxSession> sessions = getVisibleTermuxSessions();
         TerminalSession currentSession = getCurrentSession();
@@ -2377,8 +2380,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         switchToTerminalTab(session);
     }
 
+    /**
+     * Hibernation UI/controls remain hidden until the real PTY/process hibernation controller
+     * is attached (Phase 4) so SLEEPING/zzz is never advertised without real suspension.
+     */
+    public boolean isWorkspaceHibernationControllerReady() {
+        return false;
+    }
+
     public void requestWorkspaceWakeIfNeeded(@NonNull String workspaceId) {
-        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(this)) return;
+        if (!isWorkspaceHibernationControllerReady()) return;
         WorkspaceSleepState sleepState = WorkspaceManager.getSleepState(workspaceId);
         if (sleepState == WorkspaceSleepState.SLEEPING || sleepState == WorkspaceSleepState.ERROR) {
             WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE);
@@ -2386,13 +2397,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     public void toggleWorkspaceSleep(@NonNull String workspaceId) {
-        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(this)) return;
-        WorkspaceSleepState current = WorkspaceManager.getSleepState(workspaceId);
-        if (current == WorkspaceSleepState.SLEEPING || current == WorkspaceSleepState.SUSPENDING) {
-            WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE);
-        } else {
-            WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.SLEEPING);
-        }
+        if (!isWorkspaceHibernationControllerReady()) return;
+        // Phase 4 (Task 5) will route sleep/wake transitions through WorkspaceHibernationController.
     }
 
     public void createAndSwitchWorkspace(@NonNull String name, @NonNull String rootPath) {
@@ -2404,30 +2410,47 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     public void removeWorkspaceFromUi(@NonNull String workspaceId, boolean terminateSessions) {
         if (WorkspaceModelsKt.DEFAULT_WORKSPACE_ID.equals(workspaceId)) return;
-        if (!terminateSessions) {
-            WorkspaceManager.removeWorkspace(workspaceId);
-            updateSessionTabs();
-            return;
+
+        String previousActiveWorkspaceId = WorkspaceManager.activeWorkspace().getId();
+        TerminalSession currentSession = getCurrentSession();
+        String currentHandle = currentSession != null ? currentSession.mHandle : null;
+        List<String> liveHandles = collectLiveHandles();
+
+        List<String> removedHandles = terminateSessions
+            ? WorkspaceManager.removeWorkspaceAndClearSessions(workspaceId)
+            : WorkspaceManager.removeWorkspace(workspaceId);
+
+        ProjectWorkspace activeAfter = WorkspaceManager.activeWorkspace();
+        WorkspaceRemovalPlan plan = WorkspaceRemovalPolicy.planRemoval(
+            workspaceId,
+            previousActiveWorkspaceId,
+            activeAfter.getId(),
+            removedHandles,
+            liveHandles,
+            new java.util.HashSet<>(activeAfter.getSessionHandles()),
+            currentHandle,
+            terminateSessions
+        );
+
+        for (String handle : plan.getTerminateBeforeSwitch()) {
+            closeSessionByHandle(handle);
         }
-        List<String> handles = WorkspaceManager.removeWorkspaceAndClearSessions(workspaceId);
-        if (mTermuxService != null && !handles.isEmpty()) {
-            java.util.Set<String> toClose = new java.util.HashSet<>(handles);
-            ProjectWorkspace defaultWorkspace = findWorkspaceById(WorkspaceModelsKt.DEFAULT_WORKSPACE_ID);
-            if (defaultWorkspace != null) {
-                List<TermuxSession> defaultSessions = filterSessionsForTargetWorkspace(defaultWorkspace);
-                if (defaultSessions.isEmpty()) {
-                    selectOrCreateWorkspaceSession(WorkspaceModelsKt.DEFAULT_WORKSPACE_ID);
-                } else {
-                    switchToTerminalTab(defaultSessions.get(0).getTerminalSession());
-                }
-            }
-            for (TermuxSession ts : new ArrayList<>(mTermuxService.getTermuxSessions())) {
-                if (ts != null && ts.getTerminalSession() != null && toClose.contains(ts.getTerminalSession().mHandle)) {
-                    closeSessionNow(ts.getTerminalSession());
-                }
-            }
+        if (plan.getEnsureActiveWorkspaceSession()) {
+            WorkspaceManager.setActiveWorkspace(plan.getTargetActiveWorkspaceId());
+            selectOrCreateWorkspaceSession(plan.getTargetActiveWorkspaceId());
+        }
+        for (String handle : plan.getTerminateAfterSwitch()) {
+            closeSessionByHandle(handle);
         }
         updateSessionTabs();
+    }
+
+    private void closeSessionByHandle(@NonNull String handle) {
+        if (mTermuxService == null) return;
+        TerminalSession target = mTermuxService.getTerminalSessionForHandle(handle);
+        if (target != null) {
+            closeSessionNow(target);
+        }
     }
 
     public void openFileManagerActivity() {

@@ -351,4 +351,114 @@ class DualSidebarUiTest {
         composeRule.onNodeWithContentDescription("Quick Commands").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Settings").assertIsDisplayed()
     }
+
+    @Test
+    fun hibernationDisabledHidesSleepActionAndRemoveTerminateTogglePassesTrue() {
+        val context = RuntimeEnvironment.getApplication()
+        val removedCalls = mutableListOf<Pair<String, Boolean>>()
+
+        composeRule.setContent {
+            BeTermuxComposeTheme(context) {
+                CollapsibleTabDrawer(
+                    visible = true,
+                    sessions = listOf(
+                        DrawerSessionItem("h1", "Main", null, isActive = true, isRunning = true)
+                    ),
+                    workspaces = listOf(
+                        WorkspaceDrawerItem(
+                            id = DEFAULT_WORKSPACE_ID,
+                            name = "Default",
+                            rootPath = "/home",
+                            sessionCount = 1,
+                            sleepState = WorkspaceSleepState.AWAKE,
+                            isActive = true,
+                            isDefault = true
+                        ),
+                        WorkspaceDrawerItem(
+                            id = "ws-proj",
+                            name = "Project",
+                            rootPath = "/home/proj",
+                            sessionCount = 1,
+                            sleepState = WorkspaceSleepState.AWAKE,
+                            isActive = false,
+                            isDefault = false
+                        )
+                    ),
+                    hibernationEnabled = false,
+                    onDismiss = {},
+                    onSelectSession = {},
+                    onCloseSession = {},
+                    onNewSession = {},
+                    onOpenDevBrowser = {},
+                    onOpenFileManager = {},
+                    onOpenLocalhost = {},
+                    onOpenQuickCommands = {},
+                    onOpenSettings = {},
+                    onRemoveWorkspace = { id, terminate -> removedCalls.add(id to terminate) }
+                )
+            }
+        }
+
+        assertEquals(0, composeRule.onAllNodesWithText("zzz").fetchSemanticsNodes().size)
+        composeRule.onNodeWithTag("workspace_overflow_default").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("workspace_overflow_ws-proj").performClick()
+        assertEquals(0, composeRule.onAllNodesWithText("Sleep").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Wake").fetchSemanticsNodes().size)
+
+        composeRule.onNodeWithText("Remove").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("remove_workspace_terminate_checkbox").performClick()
+        composeRule.onNodeWithTag("remove_workspace_confirm").performClick()
+        assertEquals(listOf("ws-proj" to true), removedCalls)
+    }
+
+    @Test
+    fun workspaceRemovalPolicyPlansNonActiveAndMaxSessionsAndEmptyActiveFallback() {
+        // 1. Non-active workspace removal with terminateSessions=true keeps active workspace & current session
+        val nonActivePlan = WorkspaceRemovalPolicy.planRemoval(
+            removedWorkspaceId = "ws-a",
+            previousActiveWorkspaceId = "ws-b",
+            targetActiveWorkspaceId = "ws-b",
+            removedHandles = listOf("a1", "a2"),
+            liveHandles = listOf("b1", "a1", "a2"),
+            targetActiveWorkspaceHandlesAfterRemoval = setOf("b1"),
+            currentSessionHandle = "b1",
+            terminateSessions = true
+        )
+        assertEquals(listOf("a1", "a2"), nonActivePlan.terminateBeforeSwitch)
+        assertFalse(nonActivePlan.ensureActiveWorkspaceSession)
+        assertEquals(emptyList<String>(), nonActivePlan.terminateAfterSwitch)
+
+        // 2. Active workspace holding all MAX_SESSIONS (8) with Default empty frees slots before replacement
+        val eightHandles = (1..8).map { "s$it" }
+        val maxSessionsPlan = WorkspaceRemovalPolicy.planRemoval(
+            removedWorkspaceId = "ws-a",
+            previousActiveWorkspaceId = "ws-a",
+            targetActiveWorkspaceId = DEFAULT_WORKSPACE_ID,
+            removedHandles = eightHandles,
+            liveHandles = eightHandles,
+            targetActiveWorkspaceHandlesAfterRemoval = emptySet(),
+            currentSessionHandle = "s1",
+            terminateSessions = true
+        )
+        assertEquals(eightHandles.dropLast(1), maxSessionsPlan.terminateBeforeSwitch)
+        assertTrue(maxSessionsPlan.ensureActiveWorkspaceSession)
+        assertEquals(listOf("s8"), maxSessionsPlan.terminateAfterSwitch)
+        assertEquals(DEFAULT_WORKSPACE_ID, maxSessionsPlan.targetActiveWorkspaceId)
+
+        // 3. Removing an empty active workspace (migrate mode) re-homes stale currentSession onto Default
+        val emptyActivePlan = WorkspaceRemovalPolicy.planRemoval(
+            removedWorkspaceId = "ws-empty",
+            previousActiveWorkspaceId = "ws-empty",
+            targetActiveWorkspaceId = DEFAULT_WORKSPACE_ID,
+            removedHandles = emptyList(),
+            liveHandles = listOf("d1"),
+            targetActiveWorkspaceHandlesAfterRemoval = setOf("d1"),
+            currentSessionHandle = "other-stale",
+            terminateSessions = false
+        )
+        assertEquals(emptyList<String>(), emptyActivePlan.terminateBeforeSwitch)
+        assertTrue(emptyActivePlan.ensureActiveWorkspaceSession)
+        assertEquals(emptyList<String>(), emptyActivePlan.terminateAfterSwitch)
+    }
 }
