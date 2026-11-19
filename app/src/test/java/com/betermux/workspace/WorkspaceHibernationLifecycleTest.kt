@@ -741,4 +741,40 @@ class WorkspaceHibernationLifecycleTest {
         assertFalse(controller.hasRecordsForWorkspace(ws.id))
         coordinator.destroy()
     }
+
+    @Test
+    fun switchToEmptyNonAwakeWorkspaceWakesBeforeCreatingSessionWithoutRollback() = runBlocking<Unit> {
+        val ws = WorkspaceManager.createWorkspace("EmptyNonAwake", "/tmp/empty-non-awake")
+        WorkspaceManager.setSleepState(ws.id, WorkspaceSleepState.SLEEPING)
+
+        val ops = FakeProcessOps(emptyList())
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        val coordinator = WorkspaceHibernationCoordinator(
+            context = context,
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        )
+
+        assertTrue(WorkspaceSessionPolicy.shouldWakeBeforeCreatingSession(WorkspaceSleepState.SLEEPING, hasSessions = false))
+        assertTrue(WorkspaceSessionPolicy.shouldWakeBeforeCreatingSession(WorkspaceSleepState.RESUMING, hasSessions = false))
+        assertTrue(WorkspaceSessionPolicy.shouldWakeBeforeCreatingSession(WorkspaceSleepState.ERROR, hasSessions = true))
+        assertFalse(WorkspaceSessionPolicy.shouldWakeBeforeCreatingSession(WorkspaceSleepState.ERROR, hasSessions = false))
+        assertFalse(WorkspaceSessionPolicy.shouldWakeBeforeCreatingSession(WorkspaceSleepState.AWAKE, hasSessions = true))
+
+        assertTrue(WorkspaceManager.setActiveWorkspace(ws.id))
+        var createdInWorkspaceId: String? = null
+        coordinator.requestWorkspaceWakeIfNeeded(ws.id, { emptyList() }) {
+            // Simulates selectOrCreateWorkspaceSession running inside requestWorkspaceWakeIfNeeded callback:
+            val stateAfterWake = WorkspaceManager.getSleepState(ws.id)
+            assertFalse(
+                "addNewSession must not defer again after wake completes",
+                WorkspaceSessionPolicy.shouldWakeBeforeCreatingSession(stateAfterWake, hasSessions = false)
+            )
+            createdInWorkspaceId = WorkspaceManager.activeWorkspace().id
+        }?.join()
+
+        assertEquals(ws.id, createdInWorkspaceId)
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        coordinator.destroy()
+    }
 }

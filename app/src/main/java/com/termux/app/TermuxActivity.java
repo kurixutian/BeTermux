@@ -2687,11 +2687,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxService == null) return;
         String previousWorkspaceId = WorkspaceManager.activeWorkspace().getId();
         if (!WorkspaceManager.setActiveWorkspace(workspaceId)) return;
-        requestWorkspaceWakeIfNeeded(workspaceId);
-        if (!selectOrCreateWorkspaceSession(workspaceId)) {
-            WorkspaceManager.setActiveWorkspace(previousWorkspaceId);
-            updateSessionTabs();
-        }
+        requestWorkspaceWakeIfNeeded(workspaceId, () -> {
+            if (isFinishing() || isDestroyed() || mTermuxService == null) return;
+            if (!WorkspaceManager.activeWorkspace().getId().equals(workspaceId)) return;
+            if (!selectOrCreateWorkspaceSession(workspaceId)) {
+                WorkspaceManager.setActiveWorkspace(previousWorkspaceId);
+                updateSessionTabs();
+            }
+        });
     }
 
     public boolean selectOrCreateWorkspaceSession(@NonNull String workspaceId) {

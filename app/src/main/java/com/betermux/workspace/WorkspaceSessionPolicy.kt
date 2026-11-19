@@ -161,4 +161,23 @@ object WorkspaceSessionPolicy {
         if (index < 0 || index >= visibleHandles.size) return null
         return visibleHandles[index]
     }
+
+    /**
+     * Returns true when creating a new terminal session in an active workspace must wake the
+     * workspace first so a SLEEPING/SUSPENDING/RESUMING workspace (or an ERROR workspace with live
+     * sessions) never mixes stopped/gated sessions with a newly created un-gated shell.
+     */
+    @JvmStatic
+    fun shouldWakeBeforeCreatingSession(
+        sleepState: WorkspaceSleepState,
+        hasSessions: Boolean
+    ): Boolean {
+        return when (sleepState) {
+            WorkspaceSleepState.AWAKE -> false
+            WorkspaceSleepState.SLEEPING,
+            WorkspaceSleepState.SUSPENDING,
+            WorkspaceSleepState.RESUMING -> true
+            WorkspaceSleepState.ERROR -> hasSessions
+        }
+    }
 }

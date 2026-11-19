@@ -432,7 +432,8 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
         if (BeTermuxSettings.isWorkspacesEnabled(mActivity) && mActivity.isWorkspaceHibernationControllerReady()) {
             ProjectWorkspace activeWorkspace = WorkspaceManager.activeWorkspace();
-            if (WorkspaceManager.getSleepState(activeWorkspace.getId()) != WorkspaceSleepState.AWAKE) {
+            WorkspaceSleepState sleepState = WorkspaceManager.getSleepState(activeWorkspace.getId());
+            if (WorkspaceSessionPolicy.shouldWakeBeforeCreatingSession(sleepState, !activeWorkspace.getSessionHandles().isEmpty())) {
                 mActivity.requestWorkspaceWakeIfNeeded(activeWorkspace.getId(), () -> {
                     if (!mActivity.isFinishing() && !mActivity.isDestroyed()) {
                         createSessionNow(isFailSafe, sessionName, onSessionCreated);
