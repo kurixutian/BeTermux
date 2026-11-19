@@ -22,6 +22,7 @@ import com.betermux.features.BeTermuxSettings;
 import com.betermux.workspace.ProjectWorkspace;
 import com.betermux.workspace.WorkspaceManager;
 import com.betermux.workspace.WorkspaceSessionPolicy;
+import com.betermux.workspace.WorkspaceSleepState;
 import com.termux.shared.interact.ShareUtils;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 import com.termux.shared.termux.interact.TextInputDialogUtils;
@@ -329,6 +330,30 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
+        if (BeTermuxSettings.isWorkspacesEnabled(mActivity)) {
+            List<TermuxSession> visibleSessions = mActivity.getVisibleTermuxSessions();
+            if (visibleSessions.isEmpty()) return;
+            List<String> visibleHandles = new ArrayList<>(visibleSessions.size());
+            for (TermuxSession ts : visibleSessions) {
+                if (ts != null && ts.getTerminalSession() != null) {
+                    visibleHandles.add(ts.getTerminalSession().mHandle);
+                }
+            }
+            TerminalSession currentTerminalSession = mActivity.getCurrentSession();
+            String targetHandle = WorkspaceSessionPolicy.selectAdjacentSessionHandle(
+                visibleHandles,
+                currentTerminalSession != null ? currentTerminalSession.mHandle : null,
+                forward
+            );
+            if (targetHandle != null) {
+                TerminalSession targetSession = service.getTerminalSessionForHandle(targetHandle);
+                if (targetSession != null) {
+                    mActivity.switchToSession(targetSession);
+                }
+            }
+            return;
+        }
+
         TerminalSession currentTerminalSession = mActivity.getCurrentSession();
         int index = service.getIndexOfSession(currentTerminalSession);
         int size = service.getTermuxSessionsSize();
@@ -346,6 +371,24 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     public void switchToSession(int index) {
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
+
+        if (BeTermuxSettings.isWorkspacesEnabled(mActivity)) {
+            List<TermuxSession> visibleSessions = mActivity.getVisibleTermuxSessions();
+            List<String> visibleHandles = new ArrayList<>(visibleSessions.size());
+            for (TermuxSession ts : visibleSessions) {
+                if (ts != null && ts.getTerminalSession() != null) {
+                    visibleHandles.add(ts.getTerminalSession().mHandle);
+                }
+            }
+            String targetHandle = WorkspaceSessionPolicy.selectSessionHandleAtIndex(visibleHandles, index);
+            if (targetHandle != null) {
+                TerminalSession targetSession = service.getTerminalSessionForHandle(targetHandle);
+                if (targetSession != null) {
+                    mActivity.switchToSession(targetSession);
+                }
+            }
+            return;
+        }
 
         TermuxSession termuxSession = service.getTermuxSession(index);
         if (termuxSession != null)
@@ -374,49 +417,83 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     }
 
     public void addNewSession(boolean isFailSafe, String sessionName) {
+        addNewSession(isFailSafe, sessionName, null);
+    }
+
+    public void addNewSession(boolean isFailSafe, String sessionName, @Nullable Runnable onSessionCreated) {
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
         if (service.getTermuxSessionsSize() >= MAX_SESSIONS) {
             new AlertDialog.Builder(mActivity).setTitle(R.string.title_max_terminals_reached).setMessage(R.string.msg_max_terminals_reached)
                 .setPositiveButton(android.R.string.ok, null).show();
-        } else {
-            TerminalSession currentSession = mActivity.getCurrentSession();
+            return;
+        }
 
-            String workingDirectory = WorkspaceSessionPolicy.resolveNewSessionWorkingDirectory(
-                BeTermuxSettings.isWorkspacesEnabled(mActivity),
-                WorkspaceManager.activeWorkspace(),
-                currentSession != null ? currentSession.mHandle : null,
-                currentSession != null ? currentSession.getCwd() : null,
-                mActivity.getProperties().getDefaultWorkingDirectory()
-            );
-
-            // Demo build: use the fake shell written to the demo's own files dir; also use a
-            // writable working directory since /data/data/com.termux/ is not accessible.
-            String executablePath = null;
-            if (BuildConfig.IS_DEMO) {
-                executablePath = new java.io.File(mActivity.getFilesDir(), "bin/bash").getAbsolutePath();
-                java.io.File homeDir = new java.io.File(mActivity.getFilesDir(), "home");
-                homeDir.mkdirs();
-                workingDirectory = homeDir.getAbsolutePath();
+        if (BeTermuxSettings.isWorkspacesEnabled(mActivity) && mActivity.isWorkspaceHibernationControllerReady()) {
+            ProjectWorkspace activeWorkspace = WorkspaceManager.activeWorkspace();
+            if (WorkspaceManager.getSleepState(activeWorkspace.getId()) != WorkspaceSleepState.AWAKE) {
+                mActivity.requestWorkspaceWakeIfNeeded(activeWorkspace.getId(), () -> {
+                    if (!mActivity.isFinishing() && !mActivity.isDestroyed()) {
+                        createSessionNow(isFailSafe, sessionName, onSessionCreated);
+                    }
+                });
+                return;
             }
-            TermuxSession newTermuxSession = service.createTermuxSession(executablePath, null, null, workingDirectory, isFailSafe, sessionName);
-            if (newTermuxSession == null) return;
+        }
 
-            TerminalSession newTerminalSession = newTermuxSession.getTerminalSession();
-            if (newTerminalSession != null) {
-                WorkspaceManager.associateSession(newTerminalSession.mHandle);
-            }
-            setCurrentSession(newTerminalSession);
+        createSessionNow(isFailSafe, sessionName, onSessionCreated);
+    }
 
-            // Startup script — dot-source into the live shell if enabled and file exists
-            if (BeTermuxSettings.isStartupScriptEnabled(mActivity)) {
-                String scriptPath = TermuxConstants.TERMUX_DATA_HOME_DIR_PATH + "/startup-script.sh";
-                if (new java.io.File(scriptPath).exists()) {
-                    String cmd = ". " + scriptPath + "\n";
-                    newTerminalSession.write(cmd.getBytes(), 0, cmd.length());
-                }
+    private void createSessionNow(boolean isFailSafe, String sessionName, @Nullable Runnable onSessionCreated) {
+        TermuxService service = mActivity.getTermuxService();
+        if (service == null) return;
+
+        if (service.getTermuxSessionsSize() >= MAX_SESSIONS) {
+            new AlertDialog.Builder(mActivity).setTitle(R.string.title_max_terminals_reached).setMessage(R.string.msg_max_terminals_reached)
+                .setPositiveButton(android.R.string.ok, null).show();
+            return;
+        }
+
+        TerminalSession currentSession = mActivity.getCurrentSession();
+
+        String workingDirectory = WorkspaceSessionPolicy.resolveNewSessionWorkingDirectory(
+            BeTermuxSettings.isWorkspacesEnabled(mActivity),
+            WorkspaceManager.activeWorkspace(),
+            currentSession != null ? currentSession.mHandle : null,
+            currentSession != null ? currentSession.getCwd() : null,
+            mActivity.getProperties().getDefaultWorkingDirectory()
+        );
+
+        // Demo build: use the fake shell written to the demo's own files dir; also use a
+        // writable working directory since /data/data/com.termux/ is not accessible.
+        String executablePath = null;
+        if (BuildConfig.IS_DEMO) {
+            executablePath = new java.io.File(mActivity.getFilesDir(), "bin/bash").getAbsolutePath();
+            java.io.File homeDir = new java.io.File(mActivity.getFilesDir(), "home");
+            homeDir.mkdirs();
+            workingDirectory = homeDir.getAbsolutePath();
+        }
+        TermuxSession newTermuxSession = service.createTermuxSession(executablePath, null, null, workingDirectory, isFailSafe, sessionName);
+        if (newTermuxSession == null) return;
+
+        TerminalSession newTerminalSession = newTermuxSession.getTerminalSession();
+        if (newTerminalSession != null) {
+            WorkspaceManager.associateSession(newTerminalSession.mHandle);
+        }
+        setCurrentSession(newTerminalSession);
+
+        // Startup script — dot-source into the live shell if enabled and file exists
+        if (BeTermuxSettings.isStartupScriptEnabled(mActivity)) {
+            String scriptPath = TermuxConstants.TERMUX_DATA_HOME_DIR_PATH + "/startup-script.sh";
+            if (new java.io.File(scriptPath).exists()) {
+                String cmd = ". " + scriptPath + "\n";
+                newTerminalSession.write(cmd.getBytes(), 0, cmd.length());
             }
+        }
+
+        if (onSessionCreated != null) {
+            onSessionCreated.run();
         }
     }
 
@@ -513,8 +590,11 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
             if (nextSession != null) {
                 if (workspacesEnabled) {
                     ProjectWorkspace nextWorkspace = WorkspaceManager.workspaceForSession(nextSession.mHandle);
-                    if (nextWorkspace != null && !nextWorkspace.getId().equals(WorkspaceManager.activeWorkspace().getId())) {
-                        WorkspaceManager.setActiveWorkspace(nextWorkspace.getId());
+                    if (nextWorkspace != null) {
+                        if (!nextWorkspace.getId().equals(WorkspaceManager.activeWorkspace().getId())) {
+                            WorkspaceManager.setActiveWorkspace(nextWorkspace.getId());
+                        }
+                        mActivity.requestWorkspaceWakeIfNeeded(nextWorkspace.getId());
                     }
                 }
                 setCurrentSession(nextSession);

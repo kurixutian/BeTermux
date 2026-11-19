@@ -40,12 +40,13 @@ internal object WorkspaceStore {
             val array = JSONArray(rawJson)
             for (i in 0 until array.length()) {
                 val obj = array.optJSONObject(i) ?: continue
+                if (obj.isNull("id") || obj.isNull("rootPath")) continue
                 val id = obj.optString("id", "").trim()
                 val rootPath = obj.optString("rootPath", "").trim()
                 if (id.isEmpty() || rootPath.isEmpty()) continue
                 if (!seenIds.add(id)) continue
 
-                val rawName = obj.optString("name", "").trim()
+                val rawName = if (obj.isNull("name")) "" else obj.optString("name", "").trim()
                 val name = when {
                     rawName.isNotEmpty() -> rawName
                     id == DEFAULT_WORKSPACE_ID -> DEFAULT_WORKSPACE_NAME
@@ -97,6 +98,7 @@ internal object WorkspaceStore {
         if (array == null || array.length() == 0) return emptyList()
         val handles = ArrayList<String>(array.length())
         for (j in 0 until array.length()) {
+            if (array.isNull(j)) continue
             val handle = array.optString(j, "").trim()
             if (handle.isNotEmpty() && seenHandles.add(handle)) {
                 handles.add(handle)

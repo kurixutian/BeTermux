@@ -532,4 +532,60 @@ class WorkspaceHibernationTest {
         assertEquals(WorkspaceSleepState.ERROR, WorkspaceManager.getSleepState(ws.id))
         assertTrue("Session must remain gated when wake fails", session.isInputGated)
     }
+
+    @Test
+    fun closingLastSessionOfSleepingWorkspaceResetsSleepStateToAwake() {
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 940, comm = "bash", state = 'S', ppid = 1, pgid = 940, sid = 940, uid = 10912, startTimeTicks = 5000L),
+                FakeProcess(pid = 941, comm = "bash", state = 'S', ppid = 1, pgid = 941, sid = 941, uid = 10912, startTimeTicks = 5001L)
+            )
+        )
+        val ws = WorkspaceManager.createWorkspace("LastClose", "/tmp/lastclose")
+        val s1 = newTestSession(940)
+        val s2 = newTestSession(941)
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+
+        assertEquals(WorkspaceSleepState.SLEEPING, runBlocking { controller.sleepWorkspace(ws.id, listOf(s1, s2)) })
+        assertTrue(runBlocking { controller.terminateSingleSession(ws.id, s1) })
+        assertEquals(
+            "Closing first of two sessions must leave workspace SLEEPING",
+            WorkspaceSleepState.SLEEPING,
+            WorkspaceManager.getSleepState(ws.id)
+        )
+
+        assertTrue(runBlocking { controller.terminateSingleSession(ws.id, s2) })
+        assertEquals(
+            "Closing last session must reset SLEEPING workspace to AWAKE",
+            WorkspaceSleepState.AWAKE,
+            WorkspaceManager.getSleepState(ws.id)
+        )
+        assertFalse(controller.hasRecordsForWorkspace(ws.id))
+    }
+
+    @Test
+    fun closingDeadShellStillTerminatesPersistedChildProcessesInSid() {
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 950, comm = "bash", state = 'S', ppid = 1, pgid = 950, sid = 950, uid = 10912, startTimeTicks = 6000L),
+                FakeProcess(pid = 951, comm = "node", state = 'S', ppid = 950, pgid = 951, sid = 950, uid = 10912, startTimeTicks = 6005L)
+            )
+        )
+        val ws = WorkspaceManager.createWorkspace("DeadShell", "/tmp/deadshell")
+        val session = newTestSession(950)
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+
+        assertEquals(WorkspaceSleepState.SLEEPING, runBlocking { controller.sleepWorkspace(ws.id, listOf(session)) })
+
+        // Simulate shell exiting so session.pid drops to 0 while child 951 remains in SID 950.
+        ops.processes.remove(950)
+        val pidField = TerminalSession::class.java.getDeclaredField("mShellPid")
+        pidField.isAccessible = true
+        pidField.setInt(session, 0)
+
+        assertTrue(runBlocking { controller.terminateSingleSession(ws.id, session) })
+        assertFalse("Leaked child process in SID 950 must be terminated even when shell pid <= 0", ops.processes.containsKey(951))
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        assertFalse(controller.hasRecordsForWorkspace(ws.id))
+    }
 }

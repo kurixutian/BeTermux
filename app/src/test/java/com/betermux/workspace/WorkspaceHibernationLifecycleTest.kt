@@ -613,4 +613,132 @@ class WorkspaceHibernationLifecycleTest {
         assertEquals('S', backingOps.processes[930]?.state)
         assertFalse("Destroyed activity UI callback must not be invoked", uiCallbackInvoked)
     }
+
+    @Test
+    fun wakeWorkspaceBeforeRemovalResumesAndUngatesSessionsBeforeMigratingToDefault() = runBlocking<Unit> {
+        val ws = WorkspaceManager.createWorkspace("MigrateSleeping", "/tmp/migrate-sleeping")
+        val session = newTestSession(940)
+        WorkspaceManager.associateSession(session.mHandle, ws.id)
+
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 940, comm = "bash", state = 'S', ppid = 1, pgid = 940, sid = 940, uid = 10912, startTimeTicks = 14000L),
+                FakeProcess(pid = 941, comm = "sleep", state = 'S', ppid = 940, pgid = 941, sid = 940, uid = 10912, startTimeTicks = 14010L)
+            )
+        )
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, controller.sleepWorkspace(ws.id, listOf(session)))
+        assertTrue(session.isInputGated)
+        assertEquals('T', ops.processes[940]?.state)
+        assertEquals('T', ops.processes[941]?.state)
+
+        val coordinator = WorkspaceHibernationCoordinator(
+            context = context,
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        )
+
+        var migrated = emptyList<String>()
+        val job = coordinator.wakeWorkspaceBeforeRemoval(ws.id, { listOf(session) }) {
+            assertFalse("Session must be un-gated before migration", session.isInputGated)
+            assertEquals('S', ops.processes[940]?.state)
+            assertEquals('S', ops.processes[941]?.state)
+            assertFalse("Persisted SID records must be cleared before migration", controller.hasRecordsForWorkspace(ws.id))
+            migrated = WorkspaceManager.removeWorkspace(ws.id)
+        }
+        job?.join()
+
+        assertEquals(listOf(session.mHandle), migrated)
+        assertTrue(
+            WorkspaceManager.state.value.workspaces.first { it.id == DEFAULT_WORKSPACE_ID }.sessionHandles.contains(session.mHandle)
+        )
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(DEFAULT_WORKSPACE_ID))
+        coordinator.destroy()
+    }
+
+    @Test
+    fun rollbackFlagsUngateSessionsAndResetSleepStatesAcrossBothFlags() = runBlocking<Unit> {
+        val ws = WorkspaceManager.createWorkspace("RollbackWs", "/tmp/rollback")
+        val s1 = newTestSession(950)
+        WorkspaceManager.associateSession(s1.mHandle, ws.id)
+
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 950, comm = "bash", state = 'S', ppid = 1, pgid = 950, sid = 950, uid = 10912, startTimeTicks = 15000L)
+            )
+        )
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, controller.sleepWorkspace(ws.id, listOf(s1)))
+        assertTrue(s1.isInputGated)
+
+        val coordinator = WorkspaceHibernationCoordinator(
+            context = context,
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        )
+
+        // Case A: workspaces_enabled flipped OFF while hibernation stays ON -> wakes & un-gates & resets state.
+        BeTermuxSettings.setWorkspacesEnabled(context, false)
+        var callbackCount = 0
+        coordinator.reconcileRollbackFlagsIfDisabled({ listOf(s1) }) { callbackCount++ }?.join()
+        assertFalse(s1.isInputGated)
+        assertEquals('S', ops.processes[950]?.state)
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        assertEquals(1, callbackCount)
+
+        // Case B: hibernation flipped OFF -> un-gates & resets states with ZERO signals.
+        BeTermuxSettings.setWorkspacesEnabled(context, true)
+        assertEquals(WorkspaceSleepState.SLEEPING, controller.sleepWorkspace(ws.id, listOf(s1)))
+        assertTrue(s1.isInputGated)
+        ops.recordedSignals.clear()
+
+        BeTermuxSettings.setWorkspaceHibernationEnabled(context, false)
+        coordinator.reconcileRollbackFlagsIfDisabled({ listOf(s1) }) { callbackCount++ }?.join()
+        assertFalse(s1.isInputGated)
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        assertTrue("Zero signals expected when hibernation is disabled", ops.recordedSignals.isEmpty())
+        assertFalse(controller.hasAnyRecords())
+        assertEquals(2, callbackCount)
+        coordinator.destroy()
+    }
+
+    @Test
+    fun closeSessionsSequentiallyCleansUpDeadShellWithPersistedChildProcesses() = runBlocking<Unit> {
+        val ws = WorkspaceManager.createWorkspace("BatchDeadShell", "/tmp/batch-dead")
+        val s1 = newTestSession(960)
+        WorkspaceManager.associateSession(s1.mHandle, ws.id)
+
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 960, comm = "bash", state = 'S', ppid = 1, pgid = 960, sid = 960, uid = 10912, startTimeTicks = 16000L),
+                FakeProcess(pid = 961, comm = "python3", state = 'S', ppid = 960, pgid = 961, sid = 960, uid = 10912, startTimeTicks = 16005L)
+            )
+        )
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, controller.sleepWorkspace(ws.id, listOf(s1)))
+
+        // Shell died leaving pid <= 0, while child 961 remains in SID 960.
+        ops.processes.remove(960)
+        val pidField = TerminalSession::class.java.getDeclaredField("mShellPid")
+        pidField.isAccessible = true
+        pidField.setInt(s1, 0)
+
+        val coordinator = WorkspaceHibernationCoordinator(
+            context = context,
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        )
+        val events = mutableListOf<String>()
+        coordinator.closeSessionsSequentially(
+            workspaceId = ws.id,
+            sessions = listOf(s1),
+            onEachClosed = { events.add("closed:${it.mHandle}") },
+            onAllClosed = { events.add("done") }
+        )?.join()
+
+        assertEquals(listOf("closed:${s1.mHandle}", "done"), events)
+        assertFalse("Persisted child 961 must be killed even when shell pid <= 0", ops.processes.containsKey(961))
+        assertFalse(controller.hasRecordsForWorkspace(ws.id))
+        coordinator.destroy()
+    }
 }

@@ -115,6 +115,7 @@ fun RightFileDrawer(
     onOpenFullFileManager: () -> Unit,
     onOpenHomeRoot: (() -> Unit)? = null,
     onSetupStorageHint: (() -> Unit)? = null,
+    onShowMessage: ((String) -> Unit)? = null,
     initialShowHidden: Boolean = false
 ) {
     val context = LocalContext.current
@@ -184,7 +185,7 @@ fun RightFileDrawer(
     }
 
     fun expandOrRetryNode(node: FileTreeNode) {
-        if (!node.isDirectory) return
+        if (!node.isDirectory || node.isLoading) return
         if (node.isExpanded && node.error == null) {
             rootNodes = updateTreeNode(rootNodes, node.path) {
                 it.copy(isExpanded = false, isLoading = false, error = null)
@@ -570,11 +571,15 @@ fun RightFileDrawer(
             node = deleteTarget,
             onDismiss = { pendingDelete = null },
             onConfirm = {
-                scope.launch {
-                    FileTreeRepository.deleteEntry(File(deleteTarget.path))
+                val result = FileTreeRepository.deleteEntry(File(deleteTarget.path))
+                if (result.isSuccess) {
                     pendingDelete = null
                     reloadNonce += 1
+                } else {
+                    val msg = result.exceptionOrNull()?.message ?: "Failed to delete ${deleteTarget.name}"
+                    onShowMessage?.invoke(msg)
                 }
+                result
             }
         )
     }
@@ -1120,9 +1125,12 @@ private fun CreateEntryDialog(
 private fun DeleteEntryDialog(
     node: FileTreeNode,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+    onConfirm: suspend () -> Result<Unit>
 ) {
     val palette = LocalWarpPalette.current
+    val scope = rememberCoroutineScope()
+    var errorMsg by remember(node.path) { mutableStateOf<String?>(null) }
+    var deleting by remember(node.path) { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     val detail = when {
         node.isSymlink -> "Remove symbolic link \"${node.name}\"? The link target on disk will not be deleted."
@@ -1170,16 +1178,35 @@ private fun DeleteEntryDialog(
                 color = palette.textSecondary,
                 fontSize = 13.sp
             )
+            if (errorMsg != null) {
+                Text(
+                    text = errorMsg.orEmpty(),
+                    color = palette.error,
+                    fontSize = 12.sp,
+                    modifier = Modifier.testTag("delete_entry_error")
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = onDismiss, enabled = !deleting) {
                     Text("Cancel")
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 TextButton(
-                    onClick = onConfirm,
+                    onClick = {
+                        if (deleting) return@TextButton
+                        scope.launch {
+                            deleting = true
+                            val res = onConfirm()
+                            deleting = false
+                            if (res.isFailure) {
+                                errorMsg = res.exceptionOrNull()?.message ?: "Failed to delete ${node.name}"
+                            }
+                        }
+                    },
+                    enabled = !deleting,
                     modifier = Modifier.testTag("delete_entry_confirm")
                 ) {
                     Text("Delete", color = palette.error)

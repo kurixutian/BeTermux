@@ -129,4 +129,36 @@ object WorkspaceSessionPolicy {
         val safeIndex = removedIndex.coerceIn(0, candidates.lastIndex)
         return candidates[safeIndex]
     }
+
+    /**
+     * Picks the next or previous session handle within [visibleHandles] for keyboard-shortcut
+     * cycling so navigation stays scoped to the active workspace.
+     */
+    @JvmStatic
+    fun selectAdjacentSessionHandle(
+        visibleHandles: List<String>,
+        currentHandle: String?,
+        forward: Boolean
+    ): String? {
+        if (visibleHandles.isEmpty()) return null
+        val currentIndex = if (currentHandle != null) visibleHandles.indexOf(currentHandle) else -1
+        val targetIndex = when {
+            currentIndex < 0 -> 0
+            forward -> (currentIndex + 1) % visibleHandles.size
+            else -> if (currentIndex - 1 < 0) visibleHandles.lastIndex else currentIndex - 1
+        }
+        return visibleHandles[targetIndex]
+    }
+
+    /**
+     * Picks the session handle at [index] within [visibleHandles], or null if out of bounds.
+     */
+    @JvmStatic
+    fun selectSessionHandleAtIndex(
+        visibleHandles: List<String>,
+        index: Int
+    ): String? {
+        if (index < 0 || index >= visibleHandles.size) return null
+        return visibleHandles[index]
+    }
 }

@@ -200,7 +200,13 @@ class WorkspaceHostBridge(
                             },
                             onOpenHomeRoot = {
                                 closeRightDrawer()
-                                activity.cdCurrentSessionTo(TermuxConstants.TERMUX_HOME_DIR_PATH)
+                                if (activeWs != null) {
+                                    activity.requestWorkspaceWakeIfNeeded(activeWs.id) {
+                                        activity.cdCurrentSessionTo(TermuxConstants.TERMUX_HOME_DIR_PATH)
+                                    }
+                                } else {
+                                    activity.cdCurrentSessionTo(TermuxConstants.TERMUX_HOME_DIR_PATH)
+                                }
                             },
                             onSetupStorageHint = {
                                 closeRightDrawer()
@@ -213,6 +219,9 @@ class WorkspaceHostBridge(
                                 } catch (_: Exception) {
                                     activity.openFileManagerActivity()
                                 }
+                            },
+                            onShowMessage = { msg ->
+                                Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
                             }
                         )
                     }
@@ -318,6 +327,7 @@ class WorkspaceHostBridge(
 
     fun refreshSettings() {
         settingsVersionFlow.value += 1
+        activity.reconcileWorkspaceFeatureFlags()
         val rightEnabled = BeTermuxSettings.isDualSidebarsEnabled(activity) &&
             BeTermuxSettings.isRightFileExplorerEnabled(activity)
         if (!rightEnabled && rightDrawerVisibleFlow.value) {

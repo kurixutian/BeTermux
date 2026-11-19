@@ -90,6 +90,90 @@ class WorkspaceHibernationCoordinator @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Wakes [workspaceId] before removing it and migrating its sessions to Default when
+     * `terminateSessions == false`, ensuring non-AWAKE workspaces, persisted SID records, or
+     * input-gated sessions are resumed and un-gated before migration.
+     */
+    fun wakeWorkspaceBeforeRemoval(
+        workspaceId: String,
+        sessionsProvider: SessionListProvider,
+        onComplete: CompletionCallback = CompletionCallback {}
+    ): Job? {
+        val sessions = sessionsProvider.getSessions()
+        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) {
+            sessions.forEach { it.setInputGated(false) }
+            onComplete.onComplete()
+            return null
+        }
+
+        val currentState = WorkspaceManager.getSleepState(workspaceId)
+        val needsWake = currentState != WorkspaceSleepState.AWAKE ||
+            controller.hasRecordsForWorkspace(workspaceId) ||
+            sessions.any { it.isInputGated }
+        if (!needsWake) {
+            onComplete.onComplete()
+            return null
+        }
+
+        return scope.launch {
+            withContext(NonCancellable) {
+                controller.wakeWorkspace(workspaceId, sessions)
+            }
+            if (isActive) {
+                onComplete.onComplete()
+            }
+        }
+    }
+
+    /**
+     * Un-gates live sessions and resets non-AWAKE workspace states when `workspaces_enabled`
+     * or `workspace_hibernation_enabled` is flipped off at runtime.
+     */
+    fun reconcileRollbackFlagsIfDisabled(
+        allSessionsProvider: SessionListProvider,
+        onComplete: CompletionCallback = CompletionCallback {}
+    ): Job? {
+        val workspacesEnabled = BeTermuxSettings.isWorkspacesEnabled(appContext)
+        val hibernationEnabled = BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)
+        if (workspacesEnabled && hibernationEnabled) {
+            return null
+        }
+
+        val sessions = allSessionsProvider.getSessions()
+        if (!hibernationEnabled) {
+            sessions.forEach { it.setInputGated(false) }
+            controller.clearAllRecordsForRollback()
+            WorkspaceManager.resetAllSleepStatesToAwake()
+            onComplete.onComplete()
+            return null
+        }
+
+        val nonAwakeIds = WorkspaceManager.state.value.sleepStates
+            .filterValues { it != WorkspaceSleepState.AWAKE }
+            .keys
+        val workspaceIdsToWake = (nonAwakeIds + controller.recordedWorkspaceIds()).distinct()
+        if (workspaceIdsToWake.isEmpty() && sessions.none { it.isInputGated }) {
+            WorkspaceManager.resetAllSleepStatesToAwake()
+            onComplete.onComplete()
+            return null
+        }
+
+        return scope.launch {
+            withContext(NonCancellable) {
+                for (wsId in workspaceIdsToWake) {
+                    controller.wakeWorkspace(wsId, sessions)
+                }
+                sessions.forEach { it.setInputGated(false) }
+                controller.clearAllRecordsForRollback()
+                WorkspaceManager.resetAllSleepStatesToAwake()
+            }
+            if (isActive) {
+                onComplete.onComplete()
+            }
+        }
+    }
+
     fun closeSession(
         workspaceId: String,
         session: TerminalSession,
@@ -143,8 +227,7 @@ class WorkspaceHibernationCoordinator @JvmOverloads constructor(
         }
 
         val hibernationEnabled = BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)
-        val needsAsyncTermination = hibernationEnabled && reserved.any { it.pid > 0 }
-        if (!needsAsyncTermination) {
+        if (!hibernationEnabled) {
             try {
                 for (session in reserved) {
                     onEachClosed.onSessionClosed(session)
@@ -164,10 +247,8 @@ class WorkspaceHibernationCoordinator @JvmOverloads constructor(
             try {
                 for (session in reserved) {
                     try {
-                        if (session.pid > 0) {
-                            withContext(NonCancellable) {
-                                controller.terminateSingleSession(workspaceId, session)
-                            }
+                        withContext(NonCancellable) {
+                            controller.terminateSingleSession(workspaceId, session)
                         }
                     } finally {
                         synchronized(terminatingLock) {

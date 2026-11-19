@@ -311,6 +311,9 @@ class WorkspaceHibernationController(
                 withContext(Dispatchers.IO) {
                     removeRecordByHandle(workspaceId, session.mHandle)
                 }
+                if (WorkspaceManager.getSleepState(workspaceId) != WorkspaceSleepState.ERROR) {
+                    WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE)
+                }
                 return@withLock true
             }
 
@@ -365,7 +368,16 @@ class WorkspaceHibernationController(
                 }
             }
 
-            if (!terminated) {
+            if (terminated) {
+                val noRecordsRemain = withContext(Dispatchers.IO) {
+                    loadRecordsForWorkspace(workspaceId).isEmpty()
+                }
+                if (noRecordsRemain &&
+                    WorkspaceManager.getSleepState(workspaceId) != WorkspaceSleepState.ERROR
+                ) {
+                    WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE)
+                }
+            } else {
                 if (priorState != WorkspaceSleepState.SLEEPING) {
                     session.setInputGated(false)
                 }
@@ -500,6 +512,24 @@ class WorkspaceHibernationController(
             } catch (_: Exception) {
                 emptyList()
             }
+        }
+    }
+
+    internal fun hasRecordsForWorkspace(workspaceId: String): Boolean {
+        return loadRecordsForWorkspace(workspaceId).isNotEmpty()
+    }
+
+    internal fun hasAnyRecords(): Boolean {
+        return loadAllRecords().isNotEmpty()
+    }
+
+    internal fun recordedWorkspaceIds(): List<String> {
+        return loadAllRecords().map { it.workspaceId }.distinct()
+    }
+
+    internal fun clearAllRecordsForRollback() {
+        synchronized(prefsLock) {
+            saveAllRecordsLocked(emptyList())
         }
     }
 

@@ -329,6 +329,20 @@ object WorkspaceManager {
         }
     }
 
+    /**
+     * Resets all in-memory workspace sleep states to [WorkspaceSleepState.AWAKE] when
+     * workspaces or hibernation rollback flags are turned off at runtime.
+     */
+    @JvmStatic
+    fun resetAllSleepStatesToAwake() {
+        synchronized(lock) {
+            val current = _state.value
+            if (current.sleepStates.values.all { it == WorkspaceSleepState.AWAKE }) return
+            val reset = current.workspaces.associate { it.id to WorkspaceSleepState.AWAKE }
+            _state.value = current.copy(sleepStates = reset)
+        }
+    }
+
     private fun commitStateLocked(
         workspaces: List<ProjectWorkspace>,
         activeWorkspaceId: String,

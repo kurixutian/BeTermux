@@ -749,6 +749,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void applyFeatureSettings() {
         // Hide/show the whole scroll container (chip group lives inside it)
+        reconcileWorkspaceFeatureFlags();
         syncSessionTabsBarVisibility();
         updateRightDrawerToolbarButton(mWorkspaceHostBridge != null && mWorkspaceHostBridge.isRightDrawerOpen());
         // Autocorrect initial enabled state
@@ -1215,9 +1216,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             }, optIdx -> {
                 if (optIdx == 0) {
                     if (mTermuxTerminalSessionActivityClient != null) {
-                        mTermuxTerminalSessionActivityClient.addNewSession(false, null);
+                        mTermuxTerminalSessionActivityClient.addNewSession(false, null, () -> {
+                            if (!isFinishing() && !isDestroyed()) {
+                                switchToTerminalTab(getCurrentSession());
+                            }
+                        });
+                    } else {
+                        switchToTerminalTab(getCurrentSession());
                     }
-                    switchToTerminalTab(getCurrentSession());
                 } else if (optIdx == 1) {
                     openBrowserTab("https://www.google.com");
                 } else if (optIdx == 2) {
@@ -2464,9 +2470,52 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         switchToWorkspace(created.getId());
     }
 
+    @NonNull
+    private List<TerminalSession> getAllLiveTerminalSessions() {
+        if (mTermuxService == null) return Collections.emptyList();
+        List<TermuxSession> termuxSessions = mTermuxService.getTermuxSessions();
+        List<TerminalSession> sessions = new ArrayList<>(termuxSessions.size());
+        for (TermuxSession ts : termuxSessions) {
+            if (ts != null && ts.getTerminalSession() != null) {
+                sessions.add(ts.getTerminalSession());
+            }
+        }
+        return sessions;
+    }
+
+    public void reconcileWorkspaceFeatureFlags() {
+        if (!BeTermuxSettings.isWorkspacesEnabled(this) || !BeTermuxSettings.isWorkspaceHibernationEnabled(this)) {
+            getHibernationCoordinator().reconcileRollbackFlagsIfDisabled(
+                this::getAllLiveTerminalSessions,
+                () -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        updateSessionTabs();
+                    }
+                }
+            );
+        }
+    }
+
     public void removeWorkspaceFromUi(@NonNull String workspaceId, boolean terminateSessions) {
         if (WorkspaceModelsKt.DEFAULT_WORKSPACE_ID.equals(workspaceId)) return;
 
+        if (!terminateSessions && isWorkspaceHibernationControllerReady()) {
+            getHibernationCoordinator().wakeWorkspaceBeforeRemoval(
+                workspaceId,
+                () -> getTerminalSessionsForWorkspace(workspaceId),
+                () -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        executeWorkspaceRemoval(workspaceId, false);
+                    }
+                }
+            );
+            return;
+        }
+
+        executeWorkspaceRemoval(workspaceId, terminateSessions);
+    }
+
+    private void executeWorkspaceRemoval(@NonNull String workspaceId, boolean terminateSessions) {
         String previousActiveWorkspaceId = WorkspaceManager.activeWorkspace().getId();
         TerminalSession currentSession = getCurrentSession();
         String currentHandle = currentSession != null ? currentSession.mHandle : null;
@@ -2495,22 +2544,22 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             if (isFinishing() || isDestroyed()) return;
             if (plan.getEnsureActiveWorkspaceSession()) {
                 WorkspaceManager.setActiveWorkspace(plan.getTargetActiveWorkspaceId());
-                selectOrCreateWorkspaceSession(plan.getTargetActiveWorkspaceId());
+                requestWorkspaceWakeIfNeeded(plan.getTargetActiveWorkspaceId(), () -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    selectOrCreateWorkspaceSession(plan.getTargetActiveWorkspaceId());
+                    finishAfterSessionsBatch(workspaceId, afterSessions);
+                });
+                return;
             }
-            if (!afterSessions.isEmpty()) {
-                getHibernationCoordinator().closeSessionsSequentially(
-                    workspaceId,
-                    afterSessions,
-                    this::finishAndRemoveClosedSession,
-                    () -> {
-                        if (!isFinishing() && !isDestroyed()) {
-                            updateSessionTabs();
-                        }
+            if (WorkspaceManager.activeWorkspace().getId().equals(plan.getTargetActiveWorkspaceId())) {
+                requestWorkspaceWakeIfNeeded(plan.getTargetActiveWorkspaceId(), () -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        finishAfterSessionsBatch(workspaceId, afterSessions);
                     }
-                );
-            } else {
-                updateSessionTabs();
+                });
+                return;
             }
+            finishAfterSessionsBatch(workspaceId, afterSessions);
         };
 
         if (!beforeSessions.isEmpty()) {
@@ -2522,6 +2571,23 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             );
         } else {
             afterBeforeBatch.onComplete();
+        }
+    }
+
+    private void finishAfterSessionsBatch(@NonNull String workspaceId, @NonNull List<TerminalSession> afterSessions) {
+        if (!afterSessions.isEmpty()) {
+            getHibernationCoordinator().closeSessionsSequentially(
+                workspaceId,
+                afterSessions,
+                this::finishAndRemoveClosedSession,
+                () -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        updateSessionTabs();
+                    }
+                }
+            );
+        } else {
+            updateSessionTabs();
         }
     }
 
@@ -2720,18 +2786,20 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
         String label = name.isEmpty() ? "Command " + (index + 1) : name;
         if (mTermuxTerminalSessionActivityClient != null) {
-            mTermuxTerminalSessionActivityClient.addNewSession(false, label);
-            switchToTerminalTab(getCurrentSession());
-            if (!cmd.isEmpty() && mTerminalView != null) {
-                final String finalCmd = cmd + "\n";
-                mTerminalView.post(() -> {
-                    TerminalSession s = getCurrentSession();
-                    if (s != null) {
-                        byte[] finalBytes = finalCmd.getBytes();
-                        s.write(finalBytes, 0, finalBytes.length);
-                    }
-                });
-            }
+            mTermuxTerminalSessionActivityClient.addNewSession(false, label, () -> {
+                if (isFinishing() || isDestroyed()) return;
+                switchToTerminalTab(getCurrentSession());
+                if (!cmd.isEmpty() && mTerminalView != null) {
+                    final String finalCmd = cmd + "\n";
+                    mTerminalView.post(() -> {
+                        TerminalSession s = getCurrentSession();
+                        if (s != null) {
+                            byte[] finalBytes = finalCmd.getBytes();
+                            s.write(finalBytes, 0, finalBytes.length);
+                        }
+                    });
+                }
+            });
         }
     }
 
@@ -2813,7 +2881,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void closeSessionNow(TerminalSession session) {
         if (session == null) return;
-        if (isWorkspaceHibernationControllerReady() && session.getPid() > 0) {
+        if (isWorkspaceHibernationControllerReady()) {
             String workspaceId = resolveWorkspaceIdForSession(session);
             getHibernationCoordinator().closeSession(
                 workspaceId,
@@ -3443,7 +3511,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         b.setMessage(R.string.title_confirm_kill_process);
         b.setPositiveButton(android.R.string.yes, (dialog, id) -> {
             dialog.dismiss();
-            if (isWorkspaceHibernationControllerReady() && session.getPid() > 0) {
+            if (isWorkspaceHibernationControllerReady()) {
                 String workspaceId = resolveWorkspaceIdForSession(session);
                 getHibernationCoordinator().closeSession(
                     workspaceId,

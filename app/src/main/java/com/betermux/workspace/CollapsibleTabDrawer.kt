@@ -941,7 +941,8 @@ private fun DrawerSessionCard(
                     fontSize = 13.sp,
                     fontWeight = if (item.isActive) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 if (item.isRunning) {
                     Box(
