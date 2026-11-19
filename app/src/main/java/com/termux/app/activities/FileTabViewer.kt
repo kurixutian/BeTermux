@@ -1,6 +1,8 @@
 package com.termux.app.activities
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -9,6 +11,7 @@ import android.graphics.pdf.PdfRenderer
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.webkit.MimeTypeMap
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.MediaController
@@ -19,7 +22,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +54,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
@@ -60,7 +66,8 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -79,6 +86,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -114,8 +122,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
-import com.newtermux.compose.NewTermuxComposeTheme
-import com.newtermux.compose.outlinedMenuCard
+import com.betermux.compose.BeTermuxComposeTheme
+import com.betermux.compose.outlinedMenuCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -132,14 +140,16 @@ object FileTabBridge {
         context: Context,
         file: File,
         onClose: Runnable,
-        onFileSaved: Runnable
+        onFileSaved: Runnable,
+        onOpenFile: java.util.function.Consumer<File>? = null
     ) {
         composeView.setContent {
-            NewTermuxComposeTheme(context) {
+            BeTermuxComposeTheme(context) {
                 FileTabViewer(
                     file = file,
                     onClose = { onClose.run() },
-                    onFileSaved = { onFileSaved.run() }
+                    onFileSaved = { onFileSaved.run() },
+                    onOpenFile = { onOpenFile?.accept(it) }
                 )
             }
         }
@@ -157,11 +167,12 @@ enum class FileCategory {
     PPTX,
     SPREADSHEET,
     CODE_TEXT,
-    BINARY
+    BINARY,
+    FOLDER
 }
 
 fun categorizeFile(file: File): FileCategory {
-    if (file.isDirectory) return FileCategory.BINARY
+    if (file.isDirectory) return FileCategory.FOLDER
     val ext = file.name.substringAfterLast('.', "").lowercase()
     val name = file.name.lowercase()
 
@@ -188,11 +199,13 @@ fun categorizeFile(file: File): FileCategory {
 fun FileTabViewer(
     file: File,
     onClose: () -> Unit,
-    onFileSaved: () -> Unit
+    onFileSaved: () -> Unit,
+    onOpenFile: (File) -> Unit = {}
 ) {
     val category = remember(file) { categorizeFile(file) }
 
     when (category) {
+        FileCategory.FOLDER -> FolderTabViewer(root = file, onClose = onClose, onOpenFile = onOpenFile)
         FileCategory.IMAGE -> ImageTabViewer(file = file, onClose = onClose)
         FileCategory.VIDEO -> VideoTabViewer(file = file, onClose = onClose)
         FileCategory.AUDIO -> AudioTabViewer(file = file, onClose = onClose)
@@ -204,6 +217,160 @@ fun FileTabViewer(
         FileCategory.SPREADSHEET -> SpreadsheetTabViewer(file = file, onClose = onClose)
         FileCategory.CODE_TEXT -> CodeTextTabViewer(file = file, onClose = onClose, onSaved = onFileSaved)
         FileCategory.BINARY -> BinaryTabViewer(file = file, onClose = onClose)
+    }
+}
+
+/**
+ * Browsable folder tab: lists the directory's entries in-tab; tapping a subfolder navigates
+ * inside this tab, tapping a file opens it in its own viewer tab via [onOpenFile].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FolderTabViewer(
+    root: File,
+    onClose: () -> Unit,
+    onOpenFile: (File) -> Unit
+) {
+    var currentDir by remember(root) { mutableStateOf(root) }
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val entries = remember(currentDir, refreshKey) {
+        currentDir.listFiles()
+            ?.sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
+            ?: emptyList()
+    }
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                title = {
+                    Column {
+                        Text(
+                            currentDir.name.ifBlank { currentDir.absolutePath },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            currentDir.absolutePath,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        val parent = currentDir.parentFile
+                        if (parent != null && parent.absolutePath.startsWith(root.absolutePath)) {
+                            currentDir = parent
+                        } else {
+                            onClose()
+                        }
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { refreshKey++ }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh folder")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        if (entries.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "This folder is empty",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                items(entries, key = { it.absolutePath }) { entry ->
+                    var showMenu by remember { mutableStateOf(false) }
+                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    Box {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = {
+                                    if (entry.isDirectory) currentDir = entry else onOpenFile(entry)
+                                },
+                                onLongClick = { showMenu = true }
+                            )
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.Description,
+                            contentDescription = null,
+                            tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                entry.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (entry.isDirectory) {
+                                Text(
+                                    "Folder",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Copy path") },
+                            onClick = {
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(entry.absolutePath))
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = {
+                                if (entry.isDirectory) entry.deleteRecursively() else entry.delete()
+                                showMenu = false
+                                val parent = currentDir
+                                currentDir = File(parent.absolutePath)
+                            }
+                        )
+                    }
+                    }
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1192,7 +1359,7 @@ private fun CodeTextTabViewer(
 ) {
     val context = LocalContext.current
     val ext = remember(file.name) { file.name.substringAfterLast('.', "").lowercase() }
-    val initialText = remember(file) { readFileSafe(file) }
+    var initialText by remember(file) { mutableStateOf(readFileSafe(file)) }
     var textFieldValue by remember(file) { mutableStateOf(TextFieldValue(initialText, TextRange(0))) }
     val text = textFieldValue.text
     val isModified = text != initialText
@@ -1249,6 +1416,7 @@ private fun CodeTextTabViewer(
                         onClick = {
                             try {
                                 file.writeText(text)
+                                initialText = text
                                 onSaved()
                                 Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
                             } catch (e: Exception) {
@@ -1548,6 +1716,69 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> String.format("%.1f MB", bytes / (1024.0 * 1024))
+}
+
+/**
+ * Launches an external editor (via [Intent.ACTION_EDIT] with read+write URI grants)
+ * or falls back to [Intent.ACTION_VIEW]. Returns false cleanly if [FileProvider]
+ * rejects the path or no activity can handle the file.
+ */
+fun openExternalEditor(context: Context, file: File): Boolean {
+    val uri: Uri = try {
+        FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+    } catch (_: IllegalArgumentException) {
+        Toast.makeText(
+            context,
+            "Cannot share ${file.name}: path is outside exposed storage",
+            Toast.LENGTH_SHORT
+        ).show()
+        return false
+    } catch (e: Exception) {
+        Toast.makeText(context, "Cannot open ${file.name}: ${e.message}", Toast.LENGTH_SHORT).show()
+        return false
+    }
+
+    val ext = file.extension.lowercase()
+    val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+        ?: when (categorizeFile(file)) {
+            FileCategory.CODE_TEXT, FileCategory.MARKDOWN, FileCategory.HTML -> "text/plain"
+            else -> "*/*"
+        }
+
+    val editIntent = Intent(Intent.ACTION_EDIT).apply {
+        setDataAndType(uri, mimeType)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        if (editIntent.resolveActivity(context.packageManager) != null) {
+            context.startActivity(editIntent)
+            return true
+        }
+    } catch (_: ActivityNotFoundException) {
+    } catch (_: SecurityException) {
+    }
+
+    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mimeType)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    return try {
+        if (viewIntent.resolveActivity(context.packageManager) != null) {
+            context.startActivity(viewIntent)
+            true
+        } else {
+            Toast.makeText(context, "No external app found for ${file.name}", Toast.LENGTH_SHORT).show()
+            false
+        }
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "No external app found for ${file.name}", Toast.LENGTH_SHORT).show()
+        false
+    } catch (e: Exception) {
+        Toast.makeText(context, "Cannot open ${file.name}: ${e.message}", Toast.LENGTH_SHORT).show()
+        false
+    }
 }
 
 private fun openWithSystem(context: Context, file: File) {
