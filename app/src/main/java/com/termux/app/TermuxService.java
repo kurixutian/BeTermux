@@ -132,6 +132,13 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         // gets their sessions (name + cwd) back instead of a single blank shell.
         restoreSessionsIfNeeded();
 
+        if (com.betermux.features.BeTermuxSettings.isWorkspaceHibernationEnabled(this)) {
+            com.betermux.workspace.WorkspaceHibernationCoordinator.launchColdStartCleanup(
+                this,
+                android.os.Process.myUid()
+            );
+        }
+
         // Hold the keep-alive wake lock continuously while any session is alive.
         updateWakeLockForKeepAlive();
 

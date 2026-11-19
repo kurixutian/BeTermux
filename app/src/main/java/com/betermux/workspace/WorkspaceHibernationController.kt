@@ -561,5 +561,19 @@ class WorkspaceHibernationController(
     companion object {
         private const val PREFS_NAME = "betermux_hibernation_sids"
         private const val KEY_MANAGED_SIDS_JSON = "managed_sids_json"
+
+        @Volatile
+        private var sharedInstance: WorkspaceHibernationController? = null
+
+        @JvmStatic
+        fun getInstance(context: Context): WorkspaceHibernationController {
+            val existing = sharedInstance
+            if (existing != null) return existing
+            return synchronized(this) {
+                sharedInstance ?: WorkspaceHibernationController(context.applicationContext ?: context).also {
+                    sharedInstance = it
+                }
+            }
+        }
     }
 }

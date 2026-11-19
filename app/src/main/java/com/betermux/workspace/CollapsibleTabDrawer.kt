@@ -568,6 +568,15 @@ private fun WorkspaceRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (hibernationEnabled && item.sleepState == WorkspaceSleepState.SLEEPING) {
+                Text(
+                    text = "Remote SSH sessions may drop during long sleep",
+                    color = palette.textSecondary,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         if (showOverflowMenu) {
@@ -592,11 +601,23 @@ private fun WorkspaceRow(
                     modifier = Modifier.outlinedMenuCard()
                 ) {
                     if (hibernationEnabled) {
-                        val isSleepingOrSuspending =
+                        val shouldShowWake =
                             item.sleepState == WorkspaceSleepState.SLEEPING ||
-                                item.sleepState == WorkspaceSleepState.SUSPENDING
+                                item.sleepState == WorkspaceSleepState.SUSPENDING ||
+                                item.sleepState == WorkspaceSleepState.ERROR
                         DropdownMenuItem(
-                            text = { Text(if (isSleepingOrSuspending) "Wake" else "Sleep") },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(if (shouldShowWake) "Wake" else "Sleep")
+                                    if (!shouldShowWake) {
+                                        Text(
+                                            text = "Remote SSH sessions may drop during long sleep",
+                                            color = palette.textMuted,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            },
                             onClick = {
                                 menuExpanded = false
                                 onToggleSleep()

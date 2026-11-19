@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -40,9 +41,12 @@ class WorkspaceHostBridge(
     private val settingsVersionFlow = MutableStateFlow(0)
 
     private var drawerView: ComposeView? = null
+    private var bannerView: ComposeView? = null
 
     fun attachToContentRoot(contentRoot: FrameLayout?) {
         if (contentRoot == null) return
+
+        attachBannerToTerminalContainer(activity.findViewById(R.id.terminal_container))
 
         val existing = contentRoot.findViewWithTag<ComposeView>("workspace_drawer_overlay")
         val view = existing ?: ComposeView(activity).apply {
@@ -177,10 +181,8 @@ class WorkspaceHostBridge(
                             },
                             onOpenTerminalHere = { dirPath ->
                                 closeRightDrawer()
-                                if (activeWs != null &&
-                                    workspaceSnapshot.sleepStates[activeWs.id] == WorkspaceSleepState.SLEEPING
-                                ) {
-                                    activity.toggleWorkspaceSleep(activeWs.id)
+                                if (activeWs != null) {
+                                    activity.requestWorkspaceWakeIfNeeded(activeWs.id)
                                 }
                                 activity.cdCurrentSessionTo(dirPath)
                             },
@@ -209,6 +211,58 @@ class WorkspaceHostBridge(
                 }
             }
         }
+    }
+
+    private fun attachBannerToTerminalContainer(container: FrameLayout?) {
+        if (container == null) return
+
+        val existing = container.findViewWithTag<ComposeView>("workspace_hibernation_banner_host")
+        val view = existing ?: ComposeView(activity).apply {
+            tag = "workspace_hibernation_banner_host"
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP
+            )
+            visibility = View.GONE
+            container.addView(this)
+        }
+        bannerView = view
+
+        view.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        view.setContent {
+            BeTermuxComposeTheme(activity) {
+                val workspaceSnapshot by WorkspaceManager.state.collectAsState()
+                settingsVersionFlow.collectAsState().value
+
+                val workspacesEnabled = BeTermuxSettings.isWorkspacesEnabled(activity)
+                val hibernationEnabled = activity.isWorkspaceHibernationControllerReady()
+                val activeWorkspace = workspaceSnapshot.workspaces
+                    .firstOrNull { it.id == workspaceSnapshot.activeWorkspaceId }
+                    ?: workspaceSnapshot.workspaces.firstOrNull()
+                val sleepState = activeWorkspace?.let { workspaceSnapshot.sleepStates[it.id] }
+                    ?: WorkspaceSleepState.AWAKE
+                val showBanner = workspacesEnabled && hibernationEnabled && sleepState != WorkspaceSleepState.AWAKE
+
+                LaunchedEffect(showBanner) {
+                    bannerView?.visibility = if (showBanner) View.VISIBLE else View.GONE
+                }
+
+                if (showBanner && activeWorkspace != null) {
+                    WorkspaceHibernationBanner(
+                        sleepState = sleepState,
+                        onWakeClick = { activity.requestWorkspaceWakeIfNeeded(activeWorkspace.id) }
+                    )
+                }
+            }
+        }
+    }
+
+    fun destroy() {
+        drawerView?.disposeComposition()
+        drawerView = null
+        bannerView?.disposeComposition()
+        bannerView = null
     }
 
     fun openDrawer() {

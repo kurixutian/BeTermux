@@ -92,6 +92,7 @@ import com.betermux.features.RootToggleManager;
 import com.betermux.features.SpeechInputManager;
 import com.betermux.theme.BackgroundImageStore;
 import com.betermux.workspace.ProjectWorkspace;
+import com.betermux.workspace.WorkspaceHibernationCoordinator;
 import com.betermux.workspace.WorkspaceManager;
 import com.betermux.workspace.WorkspaceModelsKt;
 import com.betermux.workspace.WorkspaceRemovalPlan;
@@ -140,6 +141,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     @Nullable
     private com.betermux.workspace.WorkspaceHostBridge mWorkspaceHostBridge;
+    @Nullable
+    private WorkspaceHibernationCoordinator mHibernationCoordinator;
     private boolean mTabBarSuppressedForRightDrawer = false;
 
     /** Path to cd into once a terminal session is available (set from a cold-start CD_TO_PATH intent). */
@@ -829,6 +832,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             mLocalhostTabContainer.disposeComposition();
             mLocalhostTabContainer = null;
         }
+        if (mWorkspaceHostBridge != null) {
+            mWorkspaceHostBridge.destroy();
+            mWorkspaceHostBridge = null;
+        }
+        if (mHibernationCoordinator != null) {
+            mHibernationCoordinator.destroy();
+            mHibernationCoordinator = null;
+        }
 
         if (mTermuxService != null) {
             // Do not leave service and session clients with references to activity.
@@ -866,7 +877,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         Logger.logDebug(LOG_TAG, "onServiceConnected");
 
         mTermuxService = ((TermuxService.LocalBinder) service).service;
-        WorkspaceManager.reconcileStartupSessions(collectLiveHandles());
+        WorkspaceManager.syncLiveSessionsPreservingSleepState(collectLiveHandles());
 
         final Intent intent = getIntent();
         setIntent(null);
@@ -2380,25 +2391,62 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         switchToTerminalTab(session);
     }
 
-    /**
-     * Hibernation UI/controls remain hidden until the real PTY/process hibernation controller
-     * is attached (Phase 4) so SLEEPING/zzz is never advertised without real suspension.
-     */
+    @NonNull
+    private WorkspaceHibernationCoordinator getHibernationCoordinator() {
+        if (mHibernationCoordinator == null) {
+            mHibernationCoordinator = new WorkspaceHibernationCoordinator(this);
+        }
+        return mHibernationCoordinator;
+    }
+
+    @NonNull
+    private List<TerminalSession> getTerminalSessionsForWorkspace(@NonNull String workspaceId) {
+        ProjectWorkspace ws = findWorkspaceById(workspaceId);
+        if (ws == null) return Collections.emptyList();
+        List<TermuxSession> termuxSessions = filterSessionsForTargetWorkspace(ws);
+        List<TerminalSession> sessions = new ArrayList<>(termuxSessions.size());
+        for (TermuxSession ts : termuxSessions) {
+            if (ts != null && ts.getTerminalSession() != null) {
+                sessions.add(ts.getTerminalSession());
+            }
+        }
+        return sessions;
+    }
+
+    @NonNull
+    private String resolveWorkspaceIdForSession(@NonNull TerminalSession session) {
+        ProjectWorkspace owner = WorkspaceManager.workspaceForSession(session.mHandle);
+        return owner != null ? owner.getId() : WorkspaceManager.activeWorkspace().getId();
+    }
+
     public boolean isWorkspaceHibernationControllerReady() {
-        return false;
+        return BeTermuxSettings.isWorkspaceHibernationEnabled(this);
     }
 
     public void requestWorkspaceWakeIfNeeded(@NonNull String workspaceId) {
         if (!isWorkspaceHibernationControllerReady()) return;
-        WorkspaceSleepState sleepState = WorkspaceManager.getSleepState(workspaceId);
-        if (sleepState == WorkspaceSleepState.SLEEPING || sleepState == WorkspaceSleepState.ERROR) {
-            WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE);
-        }
+        getHibernationCoordinator().requestWorkspaceWakeIfNeeded(
+            workspaceId,
+            () -> getTerminalSessionsForWorkspace(workspaceId),
+            () -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    updateSessionTabs();
+                }
+            }
+        );
     }
 
     public void toggleWorkspaceSleep(@NonNull String workspaceId) {
         if (!isWorkspaceHibernationControllerReady()) return;
-        // Phase 4 (Task 5) will route sleep/wake transitions through WorkspaceHibernationController.
+        getHibernationCoordinator().toggleWorkspaceSleep(
+            workspaceId,
+            () -> getTerminalSessionsForWorkspace(workspaceId),
+            () -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    updateSessionTabs();
+                }
+            }
+        );
     }
 
     public void createAndSwitchWorkspace(@NonNull String name, @NonNull String rootPath) {
@@ -2433,23 +2481,23 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         );
 
         for (String handle : plan.getTerminateBeforeSwitch()) {
-            closeSessionByHandle(handle);
+            closeSessionByHandle(handle, workspaceId);
         }
         if (plan.getEnsureActiveWorkspaceSession()) {
             WorkspaceManager.setActiveWorkspace(plan.getTargetActiveWorkspaceId());
             selectOrCreateWorkspaceSession(plan.getTargetActiveWorkspaceId());
         }
         for (String handle : plan.getTerminateAfterSwitch()) {
-            closeSessionByHandle(handle);
+            closeSessionByHandle(handle, workspaceId);
         }
         updateSessionTabs();
     }
 
-    private void closeSessionByHandle(@NonNull String handle) {
+    private void closeSessionByHandle(@NonNull String handle, @NonNull String explicitWorkspaceId) {
         if (mTermuxService == null) return;
         TerminalSession target = mTermuxService.getTerminalSessionForHandle(handle);
         if (target != null) {
-            closeSessionNow(target);
+            closeSessionInWorkspaceNow(target, explicitWorkspaceId);
         }
     }
 
@@ -2719,7 +2767,29 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void closeSessionNow(TerminalSession session) {
+        closeSessionInWorkspaceNow(session, null);
+    }
+
+    private void closeSessionInWorkspaceNow(@Nullable TerminalSession session, @Nullable String explicitWorkspaceId) {
         if (session == null) return;
+        if (isWorkspaceHibernationControllerReady() && session.getPid() > 0) {
+            String workspaceId = explicitWorkspaceId != null
+                ? explicitWorkspaceId
+                : resolveWorkspaceIdForSession(session);
+            getHibernationCoordinator().closeSession(
+                workspaceId,
+                session,
+                () -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        session.finishIfRunning();
+                        if (mTermuxTerminalSessionActivityClient != null) {
+                            mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
+                        }
+                    }
+                }
+            );
+            return;
+        }
         session.finishIfRunning();
         if (mTermuxTerminalSessionActivityClient != null) {
             mTermuxTerminalSessionActivityClient.removeFinishedSession(session);
@@ -3344,7 +3414,20 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         b.setMessage(R.string.title_confirm_kill_process);
         b.setPositiveButton(android.R.string.yes, (dialog, id) -> {
             dialog.dismiss();
-            session.finishIfRunning();
+            if (isWorkspaceHibernationControllerReady() && session.getPid() > 0) {
+                String workspaceId = resolveWorkspaceIdForSession(session);
+                getHibernationCoordinator().closeSession(
+                    workspaceId,
+                    session,
+                    () -> {
+                        if (!isFinishing() && !isDestroyed()) {
+                            session.finishIfRunning();
+                        }
+                    }
+                );
+            } else {
+                session.finishIfRunning();
+            }
         });
         b.setNegativeButton(android.R.string.no, null);
         b.show();

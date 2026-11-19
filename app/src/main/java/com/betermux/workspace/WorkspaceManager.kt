@@ -259,6 +259,22 @@ object WorkspaceManager {
 
     @JvmStatic
     fun reconcileStartupSessions(liveHandles: Collection<String>) {
+        reconcileLiveSessionsInternal(liveHandles, resetSleepStates = true)
+    }
+
+    /**
+     * Reconciles live session handles without resetting runtime [WorkspaceSleepState] values,
+     * preserving active hibernation/error states when an activity reconnects to an already-running service.
+     */
+    @JvmStatic
+    fun syncLiveSessionsPreservingSleepState(liveHandles: Collection<String>) {
+        reconcileLiveSessionsInternal(liveHandles, resetSleepStates = false)
+    }
+
+    private fun reconcileLiveSessionsInternal(
+        liveHandles: Collection<String>,
+        resetSleepStates: Boolean
+    ) {
         synchronized(lock) {
             val orderedLive = liveHandles.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
             val liveSet = orderedLive.toSet()
@@ -286,9 +302,13 @@ object WorkspaceManager {
             val activeId = current.activeWorkspaceId
                 .takeIf { id -> reconciledWorkspaces.any { it.id == id } }
                 ?: DEFAULT_WORKSPACE_ID
-            val resetSleepStates = reconciledWorkspaces.associate { it.id to WorkspaceSleepState.AWAKE }
+            val nextSleepStates = if (resetSleepStates) {
+                reconciledWorkspaces.associate { it.id to WorkspaceSleepState.AWAKE }
+            } else {
+                current.sleepStates
+            }
 
-            commitStateLocked(reconciledWorkspaces, activeId, resetSleepStates)
+            commitStateLocked(reconciledWorkspaces, activeId, nextSleepStates)
         }
     }
 
