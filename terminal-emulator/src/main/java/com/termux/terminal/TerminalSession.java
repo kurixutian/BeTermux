@@ -59,6 +59,9 @@ public final class TerminalSession extends TerminalOutput {
     /** The exit status of the shell process. Only valid if ${@link #mShellPid} is -1. */
     int mShellExitStatus;
 
+    /** When true, drops incoming PTY writes at the session boundary (D3 hibernation gate). */
+    private volatile boolean mInputGated = false;
+
     /**
      * The file descriptor referencing the master half of a pseudo-terminal pair, resulting from calling
      * {@link JNI#createSubprocess(String, String, String[], String[], int[], int, int, int, int)}.
@@ -176,7 +179,18 @@ public final class TerminalSession extends TerminalOutput {
     /** Write data to the shell process. */
     @Override
     public void write(byte[] data, int offset, int count) {
+        if (mInputGated) return;
         if (mShellPid > 0) mTerminalToProcessIOQueue.write(data, offset, count);
+    }
+
+    /** Gate or un-gate incoming PTY input at the session boundary (D3). */
+    public void setInputGated(boolean gated) {
+        mInputGated = gated;
+    }
+
+    /** Returns whether incoming PTY input is currently dropped by the session gate. */
+    public boolean isInputGated() {
+        return mInputGated;
     }
 
     /** Write the Unicode code point to the terminal encoded in UTF-8. */
