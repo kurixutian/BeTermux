@@ -75,23 +75,27 @@ import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
-import com.newtermux.deck.DeckBridge;
-import com.newtermux.features.LocalhostServerManager;
-import com.newtermux.features.LocalhostServersBridge;
-import com.newtermux.update.UpdateUi;
+import com.betermux.deck.DeckBridge;
+import com.betermux.features.LocalhostServerManager;
+import com.betermux.features.LocalhostServersBridge;
+import com.betermux.update.UpdateUi;
 import androidx.viewpager.widget.ViewPager;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
 
-import com.newtermux.features.AutoCorrectHandler;
-import com.newtermux.features.NewTermuxColorTheme;
-import com.newtermux.features.NewTermuxSettings;
-import com.newtermux.features.NewTermuxTheme;
-import com.newtermux.features.RootToggleManager;
-import com.newtermux.features.SpeechInputManager;
-import com.newtermux.theme.BackgroundImageStore;
+import com.betermux.features.AutoCorrectHandler;
+import com.betermux.features.BeTermuxColorTheme;
+import com.betermux.features.BeTermuxSettings;
+import com.betermux.features.BeTermuxTheme;
+import com.betermux.features.RootToggleManager;
+import com.betermux.features.SpeechInputManager;
+import com.betermux.theme.BackgroundImageStore;
+import com.betermux.workspace.ProjectWorkspace;
+import com.betermux.workspace.WorkspaceManager;
+import com.betermux.workspace.WorkspaceSessionPolicy;
 import com.termux.app.terminal.MiniTerminalPipView;
+import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -99,6 +103,7 @@ import java.io.FileReader;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -130,7 +135,11 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     TerminalView mTerminalView;
 
     @Nullable
-    private com.newtermux.workspace.WorkspaceHostBridge mWorkspaceHostBridge;
+    private com.betermux.workspace.WorkspaceHostBridge mWorkspaceHostBridge;
+
+    /** Path to cd into once a terminal session is available (set from a cold-start CD_TO_PATH intent). */
+    @Nullable
+    private String mPendingCdPath;
 
     /**
      *  The {@link TerminalViewClient} interface implementation to allow for communication between
@@ -216,12 +225,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private float mTerminalToolbarDefaultHeight;
 
+    /**
+     * Collapses the content to the toolbar while the IME is open in a floating/freeform window.
+     */
 
-    // NewTermux features
+
+    // BeTermux features
     private SpeechInputManager mSpeechInputManager;
     private RootToggleManager mRootToggleManager;
     private AutoCorrectHandler mAutoCorrectHandler;
-    private com.newtermux.features.PackageManagerMenu mPackageManagerMenu;
+    private com.betermux.features.PackageManagerMenu mPackageManagerMenu;
     private View mAutocorrectBar;
     private TextView mAutocorrectText;
     private String mPendingCorrection;
@@ -423,7 +436,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         mTermuxActivityRootView = findViewById(R.id.activity_termux_root_view);
         mTermuxActivityRootView.setActivity(this);
         mTermuxActivityBottomSpaceView = findViewById(R.id.activity_termux_bottom_space_view);
-        mTermuxActivityRootView.setOnApplyWindowInsetsListener(new TermuxActivityRootView.WindowInsetsListener());
+        mTermuxActivityRootView.setOnApplyWindowInsetsListener(new TermuxActivityRootView.WindowInsetsListener(this));
 
         View content = findViewById(android.R.id.content);
         content.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -483,7 +496,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 saveAndInsertImageUriToCli(uri, "upload");
             });
 
-        setupNewTermuxFeatures();
+        setupBeTermuxFeatures();
 
         registerForContextMenu(mTerminalView);
 
@@ -530,6 +543,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void handleFileIntent(Intent intent) {
         if (intent == null) return;
+        String cdPath = intent.getStringExtra("CD_TO_PATH");
+        if (cdPath != null && !cdPath.isEmpty()) {
+            if (getCurrentSession() != null) {
+                cdCurrentSessionTo(cdPath);
+            } else {
+                // Cold start: no session yet — apply once onResume has one
+                mPendingCdPath = cdPath;
+            }
+            return;
+        }
         String filePath = intent.getStringExtra("OPEN_FILE_PATH");
         if (filePath != null && !filePath.isEmpty()) {
             File file = new File(filePath);
@@ -566,7 +589,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onStart();
 
-        // Coming back to NewTermux reopens a deck the user closed. Not in onResume(): the Duo
+        // Coming back to BeTermux reopens a deck the user closed. Not in onResume(): the Duo
         // pauses/resumes this activity whenever focus moves between its two screens.
         DeckBridge.setUserHidden(false);
 
@@ -591,7 +614,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         // Re-apply extra keys settings when returning from Settings
         ViewPager vp = getTerminalToolbarViewPager();
         if (vp != null) {
-            vp.setVisibility(com.newtermux.features.NewTermuxSettings.isExtraKeysVisible(this)
+            vp.setVisibility(com.betermux.features.BeTermuxSettings.isExtraKeysVisible(this)
                 ? View.VISIBLE : View.GONE);
         }
 
@@ -600,6 +623,11 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onResume();
+
+        if (mPendingCdPath != null) {
+            cdCurrentSessionTo(mPendingCdPath);
+            mPendingCdPath = null;
+        }
 
         // Check if a crash happened on last run of the app or if a plugin crashed and show a
         // notification with the crash details if it did
@@ -620,15 +648,15 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxTerminalSessionActivityClient != null)
             mTermuxTerminalSessionActivityClient.checkForFontAndColors();
 
-        // One-time nudge to allowlist NewTermux from battery optimization / Doze, so the keep-alive
+        // One-time nudge to allowlist BeTermux from battery optimization / Doze, so the keep-alive
         // foreground service actually survives backgrounding. Gated: only shows if keep-alive is on,
         // we are not already exempt, and we have not asked before.
         maybePromptBatteryOptimization();
 
         // Run any command injected by Settings (e.g. "pkg install zsh\n")
-        String pendingCmd = com.newtermux.features.NewTermuxSettings.getPendingCommand(this);
+        String pendingCmd = com.betermux.features.BeTermuxSettings.getPendingCommand(this);
         if (pendingCmd != null) {
-            com.newtermux.features.NewTermuxSettings.clearPendingCommand(this);
+            com.betermux.features.BeTermuxSettings.clearPendingCommand(this);
             TerminalSession session = getCurrentSession();
             if (session != null) {
                 byte[] bytes = pendingCmd.getBytes();
@@ -638,18 +666,18 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     /**
-     * Show a one-time dialog asking the user to allowlist NewTermux from battery optimization /
+     * Show a one-time dialog asking the user to allowlist BeTermux from battery optimization /
      * Doze. Without the exemption, Android can still tear the process down in the background even
      * with a foreground service + wake lock. Gated so it is unobtrusive: only when keep-alive is
      * enabled, we are not already exempt, and we have not prompted before.
      */
     private void maybePromptBatteryOptimization() {
-        if (!com.newtermux.features.NewTermuxSettings.isKeepAliveInBackground(this)) return;
-        if (com.newtermux.features.NewTermuxSettings.wasBatteryOptPrompted(this)) return;
+        if (!com.betermux.features.BeTermuxSettings.isKeepAliveInBackground(this)) return;
+        if (com.betermux.features.BeTermuxSettings.wasBatteryOptPrompted(this)) return;
         if (PermissionUtils.checkIfBatteryOptimizationsDisabled(this)) return;
 
         // Mark as prompted up front so this only ever appears once, regardless of the user's choice.
-        com.newtermux.features.NewTermuxSettings.setBatteryOptPrompted(this, true);
+        com.betermux.features.BeTermuxSettings.setBatteryOptPrompted(this, true);
 
         new AlertDialog.Builder(this)
             .setTitle(R.string.battery_opt_prompt_title)
@@ -666,11 +694,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void applyAccentColor() {
-        int color = NewTermuxTheme.getAccentColor(this);
-
-        // App title
-        android.widget.TextView tvTitle = findViewById(R.id.tv_app_title);
-        if (tvTitle != null) tvTitle.setTextColor(color);
+        int color = BeTermuxTheme.getAccentColor(this);
 
         // STT button (idle state)
         if (mBtnSTT != null) mBtnSTT.setColorFilter(color);
@@ -678,7 +702,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         // Extra keys active styling
         if (mExtraKeysView != null && mTermuxTerminalExtraKeys != null) {
             int activeBg = androidx.core.graphics.ColorUtils.setAlphaComponent(color, 0x44);
-            int keySurface = NewTermuxColorTheme.getSurfaceColorInt(NewTermuxColorTheme.getCurrentTheme(this));
+            int keySurface = BeTermuxColorTheme.getSurfaceColorInt(BeTermuxColorTheme.getCurrentTheme(this));
             mExtraKeysView.setButtonColors(0xFFFAF9F6, color, keySurface, activeBg);
             mExtraKeysView.reload(mTermuxTerminalExtraKeys.getExtraKeysInfo(), mTerminalToolbarDefaultHeight);
         }
@@ -698,7 +722,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             bgScrim.setVisibility(View.GONE);
             return;
         }
-        int baseBg = NewTermuxColorTheme.getBackgroundColorInt(NewTermuxColorTheme.getCurrentTheme(this));
+        int baseBg = BeTermuxColorTheme.getBackgroundColorInt(BeTermuxColorTheme.getCurrentTheme(this));
         int scrimColor = BackgroundImageStore.computeScrimColorInt(baseBg, BackgroundImageStore.getScrimAlpha(this));
         BackgroundImageStore.loadBitmapAsync(this, bmp -> {
             if (isFinishing() || isDestroyed()) return;
@@ -717,12 +741,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void applyFeatureSettings() {
         // Hide/show the whole scroll container (chip group lives inside it)
-        setVisible(R.id.session_tabs_scroll, NewTermuxSettings.isSessionTabsEnabled(this));
+        setVisible(R.id.session_tabs_scroll, BeTermuxSettings.isSessionTabsEnabled(this));
         // Autocorrect initial enabled state
         if (mAutoCorrectHandler != null)
-            mAutoCorrectHandler.setEnabled(NewTermuxSettings.isAutocorrectEnabled(this));
+            mAutoCorrectHandler.setEnabled(BeTermuxSettings.isAutocorrectEnabled(this));
         if (mTerminalView != null) {
-            mTerminalView.setKeyboardSuggestionsEnabled(NewTermuxSettings.isKeyboardSuggestionsEnabled(this));
+            mTerminalView.setKeyboardSuggestionsEnabled(BeTermuxSettings.isKeyboardSuggestionsEnabled(this));
         }
     }
 
@@ -743,6 +767,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         mIsVisible = false;
 
+
         if (mTermuxTerminalSessionActivityClient != null)
             mTermuxTerminalSessionActivityClient.onStop();
 
@@ -753,7 +778,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         unregisterTermuxActivityBroadcastReceiver();
 
-        // Give the second screen back (launcher, other apps' keyboard) while NewTermux is not in
+        // Give the second screen back (launcher, other apps' keyboard) while BeTermux is not in
         // front; onResume() reopens the deck.
         DeckBridge.hideDeck();
 
@@ -835,6 +860,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         Logger.logDebug(LOG_TAG, "onServiceConnected");
 
         mTermuxService = ((TermuxService.LocalBinder) service).service;
+        WorkspaceManager.reconcileStartupSessions(collectLiveHandles());
 
         final Intent intent = getIntent();
         setIntent(null);
@@ -952,7 +978,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxTerminalSessionActivityClient != null)
             mTermuxTerminalSessionActivityClient.onCreate();
 
-        mWorkspaceHostBridge = new com.newtermux.workspace.WorkspaceHostBridge(this, () -> null);
+        mWorkspaceHostBridge = new com.betermux.workspace.WorkspaceHostBridge(this);
         mWorkspaceHostBridge.attachToContentRoot(findViewById(android.R.id.content));
         View btnTabDrawer = findViewById(R.id.btn_tab_drawer);
         if (btnTabDrawer != null) {
@@ -974,7 +1000,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         ViewGroup.LayoutParams layoutParams = terminalToolbarViewPager.getLayoutParams();
         mTerminalToolbarDefaultHeight = layoutParams.height;
 
-        if (com.newtermux.features.NewTermuxSettings.isExtraKeysVisible(this)) {
+        if (com.betermux.features.BeTermuxSettings.isExtraKeysVisible(this)) {
             terminalToolbarViewPager.setVisibility(View.VISIBLE);
         }
         setTerminalToolbarHeight();
@@ -1024,15 +1050,15 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
     // -----------------------------------------------------------------------------------------
-    // NewTermux Features: Speech-to-Text, Root Toggle, AutoCorrect
+    // BeTermux Features: Speech-to-Text, Root Toggle, AutoCorrect
     // -----------------------------------------------------------------------------------------
 
-    private void setupNewTermuxFeatures() {
+    private void setupBeTermuxFeatures() {
         // Initialize managers
         mSpeechInputManager = new SpeechInputManager(this);
         mRootToggleManager = RootToggleManager.getInstance();
         mAutoCorrectHandler = new AutoCorrectHandler(this);
-        mPackageManagerMenu = new com.newtermux.features.PackageManagerMenu(this);
+        mPackageManagerMenu = new com.betermux.features.PackageManagerMenu(this);
 
         // Autocorrect UI
         mAutocorrectBar = findViewById(R.id.autocorrect_bar);
@@ -1043,14 +1069,34 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (btnClose != null) btnClose.setOnClickListener(v -> hideAutocorrectBar());
 
         if (mTerminalView != null) {
-            boolean acEnabled = NewTermuxSettings.isKeyboardSuggestionsEnabled(this);
+            boolean acEnabled = BeTermuxSettings.isKeyboardSuggestionsEnabled(this);
             mTerminalView.setKeyboardSuggestionsEnabled(acEnabled);
             if (mAutoCorrectHandler != null) mAutoCorrectHandler.setEnabled(acEnabled);
         }
 
         View btnFiles = findViewById(R.id.btn_files);
         if (btnFiles != null) {
-            btnFiles.setOnClickListener(v -> startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class)));
+            btnFiles.setOnClickListener(v -> {
+                android.widget.PopupMenu popup = new android.widget.PopupMenu(this, v);
+                popup.getMenu().add(0, 1, 0, "Project directory");
+                popup.getMenu().add(0, 2, 1, "File manager");
+                popup.setOnMenuItemClickListener(item -> {
+                    if (item.getItemId() == 1) {
+                        TerminalSession session = getCurrentSession();
+                        String cwd = session != null ? session.getCwd() : null;
+                        File dir = (cwd != null && new File(cwd).isDirectory())
+                            ? new File(cwd)
+                            : new File(TermuxConstants.TERMUX_HOME_DIR_PATH);
+                        openFileTab(dir);
+                        return true;
+                    } else if (item.getItemId() == 2) {
+                        startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class));
+                        return true;
+                    }
+                    return false;
+                });
+                popup.show();
+            });
         }
 
         View btnLocalhost = findViewById(R.id.btn_localhost_tab);
@@ -1068,7 +1114,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 if (vp != null) {
                     boolean show = (vp.getVisibility() != View.VISIBLE);
                     vp.setVisibility(show ? View.VISIBLE : View.GONE);
-                    NewTermuxSettings.set(this, NewTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, show);
+                    BeTermuxSettings.set(this, BeTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, show);
                 }
                 if (mTerminalView != null && !isOverlayTabActive()) {
                     mTerminalView.requestFocus();
@@ -1101,8 +1147,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         View btnStatusKeys = findViewById(R.id.status_btn_keys);
         if (btnStatusKeys != null) {
             btnStatusKeys.setOnClickListener(v -> {
-                boolean show = !NewTermuxSettings.isExtraKeysVisible(this);
-                NewTermuxSettings.set(this, NewTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, show);
+                boolean show = !BeTermuxSettings.isExtraKeysVisible(this);
+                BeTermuxSettings.set(this, BeTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, show);
                 ViewPager vp = getTerminalToolbarViewPager();
                 if (vp != null) vp.setVisibility(show ? View.VISIBLE : View.GONE);
                 if (mTerminalView != null && !isOverlayTabActive()) {
@@ -1135,7 +1181,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void showNewTabMenu(View anchor) {
-        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
+        com.betermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
             new String[]{
                 "New Terminal Tab",
                 "New Dev Browser Tab",
@@ -1561,7 +1607,15 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                         updateSessionTabs();
                     }
                 }),
-                () -> runOnUiThread(this::closeLocalhostTab)
+                () -> runOnUiThread(this::closeLocalhostTab),
+                (path, port) -> runOnUiThread(() -> startLocalhostServer(path, port)),
+                () -> {
+                    TerminalSession s = getCurrentSession();
+                    String cwd = s != null ? s.getCwd() : null;
+                    return (cwd != null && new File(cwd).isDirectory())
+                        ? cwd
+                        : TermuxConstants.TERMUX_HOME_DIR_PATH;
+                }
             );
         }
         switchToLocalhostTab();
@@ -1615,6 +1669,45 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             mTerminalView.requestFocus();
         }
         updateSessionTabs();
+    }
+
+    /** Types a cd command into the active terminal session (used by file manager long-press actions). */
+    public void cdCurrentSessionTo(String path) {
+        TerminalSession session = getCurrentSession();
+        if (session == null && mTermuxTerminalSessionActivityClient != null) {
+            session = mTermuxTerminalSessionActivityClient.getCurrentStoredSessionOrLast();
+        }
+        if (session == null || session.getEmulator() == null) return;
+        String cmd = "cd '" + path.replace("'", "'\\''") + "'\n";
+        session.getEmulator().paste(cmd);
+        switchToTerminalTab(session);
+    }
+
+    /**
+     * Starts a localhost file server for a project folder: opens a new terminal session rooted at
+     * the folder running "python -m http.server <port>", remembers the project->port assignment,
+     * and switches to the Localhost tab (live scan + stop actions pick the server up from there).
+     */
+    public void startLocalhostServer(String projectPath, int port) {
+        TermuxService service = getTermuxService();
+        if (service == null) return;
+        if (port < 1024 || port > 65535) {
+            Logger.showToast(this, "Port must be 1024–65535", true);
+            return;
+        }
+        File dir = new File(projectPath);
+        if (!dir.isDirectory()) {
+            Logger.showToast(this, "Not a folder: " + projectPath, true);
+            return;
+        }
+        String label = ":" + port + " " + dir.getName();
+        com.termux.shared.termux.shell.command.runner.terminal.TermuxSession termuxSession =
+            service.createTermuxSession(null, null, null, dir.getAbsolutePath(), false, label);
+        if (termuxSession == null) return;
+        String cmd = "python -m http.server " + port + "\n";
+        termuxSession.getTerminalSession().write(cmd.getBytes(), 0, cmd.length());
+        com.betermux.features.BeTermuxSettings.setLocalhostPort(this, dir.getAbsolutePath(), port);
+        openLocalhostTab();
     }
 
     public void openFileTab(File file) {
@@ -1688,14 +1781,15 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 () -> runOnUiThread(() -> {
                     tab.status = TAB_STATUS_FINISHED;
                     updateSessionTabs();
-                })
+                }),
+                file -> openFileTab(file)
             );
         }
         updateSessionTabs();
     }
 
     private void showFileTabPopupMenu(View anchor, int index, FileTab fileTab) {
-        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
+        com.betermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
             new String[]{"Close Tab", "Close Others", "Share File", "Copy Path"}, idx -> {
                 if (idx == 0) {
                     closeFileTab(index);
@@ -1730,7 +1824,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void showBrowserTabPopupMenu(View anchor, int index, BrowserTab tab) {
-        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
+        com.betermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
             new String[]{"Reload", "New Browser Tab", "Close Tab", "Close Others"}, idx -> {
                 if (idx == 0) {
                     if (tab.reloadAction != null) tab.reloadAction.run();
@@ -1749,7 +1843,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private void showLocalhostServerMenu(View anchor, LocalhostServerManager.LocalhostServer server) {
         String header = ":" + server.getPort()
             + (server.getPid() != null ? " • " + server.getProcessName() + " (PID " + server.getPid() + ")" : "");
-        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, header,
+        com.betermux.features.NtPopupMenu.showAsDropDown(this, anchor, header,
             new String[]{"Stop Server", "Open in Dev Browser", "Open Localhost Tab"}, idx -> {
                 if (idx == 0) {
                     stopLocalhostServerWithFeedback(server);
@@ -1802,16 +1896,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         frame.setLayoutParams(frameLp);
         frame.setClipToOutline(true);
 
-        String themeKey = NewTermuxColorTheme.getCurrentTheme(this);
+        String themeKey = BeTermuxColorTheme.getCurrentTheme(this);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(9 * density);
         if (isActive) {
             int activeStroke = androidx.core.graphics.ColorUtils.setAlphaComponent(accentColor, 0xCC);
-            bg.setColor(NewTermuxColorTheme.getSurfaceElevatedColorInt(themeKey));
+            bg.setColor(BeTermuxColorTheme.getSurfaceElevatedColorInt(themeKey));
             bg.setStroke(Math.max(2, Math.round(1.4f * density)), activeStroke);
         } else {
-            bg.setColor(NewTermuxColorTheme.getSurfaceColorInt(themeKey));
-            bg.setStroke(Math.max(1, Math.round(1 * density)), NewTermuxColorTheme.getBorderSubtleColorInt(themeKey));
+            bg.setColor(BeTermuxColorTheme.getSurfaceColorInt(themeKey));
+            bg.setStroke(Math.max(1, Math.round(1 * density)), BeTermuxColorTheme.getBorderSubtleColorInt(themeKey));
         }
         frame.setBackground(bg);
 
@@ -1903,7 +1997,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         container.removeAllViews();
 
         float density = getResources().getDisplayMetrics().density;
-        int accentColor = NewTermuxTheme.getAccentColor(this);
+        int accentColor = BeTermuxTheme.getAccentColor(this);
         View activeTabView = null;
 
         // 1. Terminal session tabs
@@ -2056,7 +2150,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     /** Update the horizontal session tabs row (terminals, dev browsers, files, localhost). */
     public void updateSessionTabs() {
         if (mTermuxService == null) return;
-        java.util.List<com.termux.shared.termux.shell.command.runner.terminal.TermuxSession> sessions = mTermuxService.getTermuxSessions();
+        List<TermuxSession> sessions = getVisibleTermuxSessions();
         TerminalSession currentSession = getCurrentSession();
 
         if (mSessionPipContainer != null) {
@@ -2093,7 +2187,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private static final int[] TOOLBAR_BUTTON_IDS = {
         R.id.btn_files, R.id.btn_localhost_tab,
-        R.id.btn_extra_keys, R.id.btn_new_session, R.id.btn_more_menu
+        R.id.btn_extra_keys, R.id.btn_more_menu
     };
 
     private void syncFloatingWindowFocusState() {
@@ -2114,9 +2208,19 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus && !mIsInvalidState) {
+        if (mIsInvalidState) return;
+        if (hasFocus) {
             syncFloatingWindowFocusState();
         }
+    }
+
+    /** Called from the root insets listener to collapse/restore content around the IME in floating windows. */
+    public void onImeInsetsChanged(@Nullable WindowInsetsCompat insets) {
+    }
+
+    /** Whether the soft keyboard is currently visible (per the last insets dispatch). */
+    public boolean isImeVisible() {
+        return false;
     }
 
     @Override
@@ -2142,8 +2246,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void applyLayoutMode(int orientation) {
         boolean landscape = orientation == Configuration.ORIENTATION_LANDSCAPE;
-        String layout = NewTermuxSettings.getLayout(this, landscape);
-        boolean dual = NewTermuxSettings.LAYOUT_DUAL_SCREEN.equals(layout) && DeckBridge.hasSecondaryDisplay(this);
+        String layout = BeTermuxSettings.getLayout(this, landscape);
+        boolean dual = BeTermuxSettings.LAYOUT_DUAL_SCREEN.equals(layout) && DeckBridge.hasSecondaryDisplay(this);
         // Dual screen: only the terminal here, the controls on the second display. When the deck
         // is closed or can't start, the status line takes over so the controls stay reachable.
         // While Settings is open on the second screen the deck stays away (it would cover it) but
@@ -2151,8 +2255,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         boolean secondScreenBusy = dual && DeckBridge.isSecondScreenBusy();
         boolean deck = dual && !DeckBridge.getUserHidden() && (secondScreenBusy || DeckBridge.showDeck(this));
         if (!deck || secondScreenBusy) DeckBridge.hideDeck();
-        setStatusLineMode(dual || NewTermuxSettings.LAYOUT_STATUS_LINE.equals(layout));
-        View statusLine = findViewById(R.id.newtermux_status_line);
+        setStatusLineMode(dual || BeTermuxSettings.LAYOUT_STATUS_LINE.equals(layout));
+        View statusLine = findViewById(R.id.betermux_status_line);
         if (statusLine != null) statusLine.setVisibility(mStatusLineMode && !deck ? View.VISIBLE : View.GONE);
         // Dual screen with the deck closed: offer a button to put it back on the second screen
         setVisible(R.id.status_btn_deck, dual && !deck);
@@ -2174,7 +2278,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     /** Keep the update pill just below the header, or at the top when the header is hidden. */
     private void updateOverlayOffset() {
-        View header = findViewById(R.id.newtermux_toolbar_container);
+        View header = findViewById(R.id.betermux_toolbar_container);
         if (header == null) return;
         header.post(() -> UpdateUi.setTopOffset(header.getVisibility() == View.VISIBLE ? header.getHeight() : 0));
     }
@@ -2192,14 +2296,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         });
     }
 
-    // Used by the dual-screen deck (com.newtermux.deck.ControlDeckPresentation)
+    // Used by the dual-screen deck (com.betermux.deck.ControlDeckPresentation)
 
     public void toggleAutocorrectFromUi() {
         if (mTerminalView == null) return;
         boolean nowEnabled = !mTerminalView.isKeyboardSuggestionsEnabled();
         mTerminalView.setKeyboardSuggestionsEnabled(nowEnabled);
         if (mAutoCorrectHandler != null) mAutoCorrectHandler.setEnabled(nowEnabled);
-        NewTermuxSettings.setKeyboardSuggestions(this, nowEnabled);
+        BeTermuxSettings.setKeyboardSuggestions(this, nowEnabled);
         showToast("Autocorrect: " + (nowEnabled ? "ON" : "OFF"), false);
     }
 
@@ -2234,6 +2338,73 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         updateSessionTabs();
     }
 
+    private List<String> collectLiveHandles() {
+        if (mTermuxService == null) return Collections.emptyList();
+        List<TermuxSession> sessions = mTermuxService.getTermuxSessions();
+        List<String> handles = new ArrayList<>(sessions.size());
+        for (TermuxSession session : sessions) {
+            if (session != null && session.getTerminalSession() != null) {
+                handles.add(session.getTerminalSession().mHandle);
+            }
+        }
+        return handles;
+    }
+
+    @NonNull
+    public List<TermuxSession> getSessionsForActiveWorkspace() {
+        if (mTermuxService == null) return Collections.emptyList();
+        return WorkspaceSessionPolicy.filterItemsForWorkspace(
+            mTermuxService.getTermuxSessions(),
+            WorkspaceManager.activeWorkspace(),
+            true,
+            session -> session != null && session.getTerminalSession() != null
+                ? session.getTerminalSession().mHandle
+                : null
+        );
+    }
+
+    @NonNull
+    public List<TermuxSession> getVisibleTermuxSessions() {
+        if (mTermuxService == null) return Collections.emptyList();
+        if (!BeTermuxSettings.isWorkspacesEnabled(this)) {
+            return mTermuxService.getTermuxSessions();
+        }
+        return getSessionsForActiveWorkspace();
+    }
+
+    public void switchToWorkspace(@NonNull String workspaceId) {
+        if (!WorkspaceManager.setActiveWorkspace(workspaceId)) return;
+        selectOrCreateWorkspaceSession(workspaceId);
+        updateSessionTabs();
+    }
+
+    public void selectOrCreateWorkspaceSession(@NonNull String workspaceId) {
+        if (mTermuxService == null) return;
+        ProjectWorkspace targetWorkspace = null;
+        for (ProjectWorkspace ws : WorkspaceManager.INSTANCE.getState().getValue().getWorkspaces()) {
+            if (ws.getId().equals(workspaceId)) {
+                targetWorkspace = ws;
+                break;
+            }
+        }
+        if (targetWorkspace == null) return;
+
+        List<TermuxSession> workspaceSessions = WorkspaceSessionPolicy.filterItemsForWorkspace(
+            mTermuxService.getTermuxSessions(),
+            targetWorkspace,
+            true,
+            session -> session != null && session.getTerminalSession() != null
+                ? session.getTerminalSession().mHandle
+                : null
+        );
+        if (!workspaceSessions.isEmpty()) {
+            switchToTerminalTab(workspaceSessions.get(0).getTerminalSession());
+        } else if (mTermuxTerminalSessionActivityClient != null) {
+            mTermuxTerminalSessionActivityClient.addNewSession(false, null);
+            switchToTerminalTab(getCurrentSession());
+        }
+    }
+
     /** Same as Rename in the session tab menu. */
     public void renameSession(TerminalSession session) {
         if (mTermuxTerminalSessionActivityClient != null && session != null)
@@ -2249,13 +2420,11 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     /** Labels of the saved quick command shortcuts, used by Quick Commands & dual-screen deck. */
     public List<String> getDrawerCommandLabels() {
         SharedPreferences prefs = getSharedPreferences(DRAWER_PREFS, MODE_PRIVATE);
-        int count = prefs.getInt("btn_count", DRAWER_BTN_DEFAULT_NAMES.length);
+        int count = prefs.getInt("btn_count", 0);
         List<String> labels = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            String defName = i < DRAWER_BTN_DEFAULT_NAMES.length ? DRAWER_BTN_DEFAULT_NAMES[i] : "";
-            String defCmd  = i < DRAWER_BTN_DEFAULT_CMDS.length  ? DRAWER_BTN_DEFAULT_CMDS[i]  : "";
-            String name = prefs.getString("btn_" + (i + 1) + "_name", defName);
-            String cmd  = prefs.getString("btn_" + (i + 1) + "_cmd",  defCmd);
+            String name = prefs.getString("btn_" + (i + 1) + "_name", "");
+            String cmd  = prefs.getString("btn_" + (i + 1) + "_cmd",  "");
             if (name.isEmpty() && cmd.isEmpty()) {
                 labels.add("Slot " + (i + 1) + " (tap to set)");
             } else {
@@ -2309,9 +2478,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
      */
     private void setStatusLineMode(boolean on) {
         if (on == mStatusLineMode) return;
-        View header = findViewById(R.id.newtermux_toolbar_container);
-        View statusLine = findViewById(R.id.newtermux_status_line);
-        ViewGroup toolbarRow = findViewById(R.id.newtermux_toolbar_row);
+        View header = findViewById(R.id.betermux_toolbar_container);
+        View statusLine = findViewById(R.id.betermux_status_line);
+        ViewGroup toolbarRow = findViewById(R.id.betermux_toolbar_row);
         ViewGroup statusButtons = findViewById(R.id.status_buttons);
         if (header == null || statusLine == null || toolbarRow == null || statusButtons == null) return;
 
@@ -2345,7 +2514,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private void showSessionPopupMenu(View anchor, TerminalSession session) {
         // Bannerlator-style pop-out menu: rounded + outlined card with a thin gray divider
         // between options (see NtPopupMenu).
-        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
+        com.betermux.features.NtPopupMenu.showAsDropDown(this, anchor, null,
             new String[]{"Rename", "Close"}, idx -> {
                 if (idx == 0) {
                     if (mTermuxTerminalSessionActivityClient != null)
@@ -2391,7 +2560,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             "Tips & Shortcuts",
             "Settings"
         };
-        com.newtermux.features.NtPopupMenu.showAsDropDown(this, anchor, null, items, idx -> {
+        com.betermux.features.NtPopupMenu.showAsDropDown(this, anchor, null, items, idx -> {
             switch (idx) {
                 case 0:
                     showQuickCommandsDialog();
@@ -2461,7 +2630,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     public void promptOrUploadImageToCli(View anchor) {
         Uri clipUri = getClipboardImageUri();
         if (clipUri != null && anchor != null) {
-            com.newtermux.features.NtPopupMenu.showAsDropDown(
+            com.betermux.features.NtPopupMenu.showAsDropDown(
                 this,
                 anchor,
                 "Insert Image to CLI",
@@ -2682,7 +2851,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     // -----------------------------------------------------------------------------------------
 
-    private static final String DRAWER_PREFS = "newtermux_drawer_buttons";
+    private static final String DRAWER_PREFS = "betermux_drawer_buttons";
     private static final String[] DRAWER_BTN_DEFAULT_NAMES = {"Gemini Yolo", "Claude", "", "", ""};
     private static final String[] DRAWER_BTN_DEFAULT_CMDS  = {
         "gemini --yolo",
@@ -2693,69 +2862,54 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     /** Modal Quick Commands sheet (replaces legacy side drawer). */
     public void showQuickCommandsDialog() {
         SharedPreferences prefs = getSharedPreferences(DRAWER_PREFS, MODE_PRIVATE);
-        int count = prefs.getInt("btn_count", DRAWER_BTN_DEFAULT_NAMES.length);
+        int count = prefs.getInt("btn_count", 0);
 
         List<String> labels = new ArrayList<>();
-        labels.add("Export Screen");
-        labels.add("Make Script from History");
-        labels.add("Update Packages (pkg update)");
-        final int utilityCount = labels.size();
         for (int i = 0; i < count; i++) {
-            String defName = i < DRAWER_BTN_DEFAULT_NAMES.length ? DRAWER_BTN_DEFAULT_NAMES[i] : "";
-            String defCmd  = i < DRAWER_BTN_DEFAULT_CMDS.length  ? DRAWER_BTN_DEFAULT_CMDS[i]  : "";
-            String name = prefs.getString("btn_" + (i + 1) + "_name", defName);
-            String cmd  = prefs.getString("btn_" + (i + 1) + "_cmd",  defCmd);
+            String name = prefs.getString("btn_" + (i + 1) + "_name", "");
+            String cmd  = prefs.getString("btn_" + (i + 1) + "_cmd",  "");
             boolean empty = name.isEmpty() && cmd.isEmpty();
             labels.add(empty ? ("Shortcut #" + (i + 1) + " (tap to configure)")
                 : (name.isEmpty() ? cmd : name + (cmd.isEmpty() ? "" : "  —  " + cmd)));
         }
-        labels.add("+ Add Shortcut Slot");
-        if (count > 1) labels.add("− Remove Last Slot");
 
-        String[] items = labels.toArray(new String[0]);
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
             .setTitle("Quick Commands")
-            .setItems(items, (d, which) -> {
-                if (which == 0) {
-                    mScreenExportSaver.launch("screen.txt");
-                } else if (which == 1) {
-                    showMakeScriptDialog();
-                } else if (which == 2) {
-                    TerminalSession s = getCurrentSession();
-                    if (s != null) {
-                        byte[] cmdBytes = "pkg update -y\n".getBytes();
-                        s.write(cmdBytes, 0, cmdBytes.length);
-                    }
-                } else if (which < utilityCount + count) {
-                    clickDrawerCommand(which - utilityCount);
-                } else if (which == utilityCount + count) {
-                    if (count < 10) {
-                        prefs.edit().putInt("btn_count", count + 1).apply();
-                        DeckBridge.notifyChanged();
-                    }
-                    showQuickCommandsDialog();
-                } else {
-                    if (count > 1) {
-                        prefs.edit()
-                            .remove("btn_" + count + "_name")
-                            .remove("btn_" + count + "_cmd")
-                            .putInt("btn_count", count - 1)
-                            .apply();
-                        DeckBridge.notifyChanged();
-                    }
-                    showQuickCommandsDialog();
+            .setPositiveButton("+ Add", (d, w) -> {
+                if (count < 10) {
+                    prefs.edit().putInt("btn_count", count + 1).apply();
+                    DeckBridge.notifyChanged();
+                    showEditDrawerButtonDialog(count);
                 }
             })
-            .setNegativeButton("Close", null)
-            .create();
-        dialog.setOnShowListener(dlg -> dialog.getListView().setOnItemLongClickListener((parent, view, pos, id) -> {
-            if (pos >= utilityCount && pos < utilityCount + count) {
-                dialog.dismiss();
-                showEditDrawerButtonDialog(pos - utilityCount);
-                return true;
+            .setNegativeButton("Close", null);
+
+        if (count == 0) {
+            builder.setMessage("No quick commands yet. Tap + Add to create one.");
+        } else {
+            String[] items = labels.toArray(new String[0]);
+            builder.setItems(items, (d, which) -> clickDrawerCommand(which));
+            builder.setNeutralButton("− Remove Last", (d, w) -> {
+                prefs.edit()
+                    .remove("btn_" + count + "_name")
+                    .remove("btn_" + count + "_cmd")
+                    .putInt("btn_count", count - 1)
+                    .apply();
+                DeckBridge.notifyChanged();
+                showQuickCommandsDialog();
+            });
+        }
+
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(dlg -> {
+            if (count > 0 && dialog.getListView() != null) {
+                dialog.getListView().setOnItemLongClickListener((parent, view, pos, id) -> {
+                    dialog.dismiss();
+                    showEditDrawerButtonDialog(pos);
+                    return true;
+                });
             }
-            return false;
-        }));
+        });
         dialog.show();
     }
 

@@ -32,7 +32,8 @@ import com.termux.shared.shell.command.runner.app.AppShell;
 import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
 import com.termux.shared.termux.shell.command.environment.TermuxShellEnvironment;
 import com.termux.shared.termux.shell.TermuxShellUtils;
-import com.newtermux.features.NewTermuxSettings;
+import com.betermux.features.BeTermuxSettings;
+import com.betermux.workspace.WorkspaceManager;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_ACTIVITY;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE;
@@ -123,6 +124,8 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         mShellManager = TermuxShellManager.getShellManager();
 
         runStartForeground();
+
+        WorkspaceManager.init(this, TermuxConstants.TERMUX_HOME_DIR_PATH);
 
         // If the process was just resurrected by AM (sticky service restart) after being torn down
         // in the background, mShellManager is empty. Rehydrate the tab list from disk so the user
@@ -397,7 +400,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
      * left untouched here.
      */
     public synchronized void updateWakeLockForKeepAlive() {
-        boolean keepAlive = NewTermuxSettings.isKeepAliveInBackground(this)
+        boolean keepAlive = BeTermuxSettings.isKeepAliveInBackground(this)
             && !mShellManager.mTermuxSessions.isEmpty()
             && !mWantsToStop;
 
@@ -421,7 +424,10 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     private void restoreSessionsIfNeeded() {
         if (mShellManager == null || !mShellManager.mTermuxSessions.isEmpty()) return;
         List<SessionStatePersister.Snapshot> snaps = SessionStatePersister.load();
-        if (snaps.isEmpty()) return;
+        if (snaps.isEmpty()) {
+            WorkspaceManager.reconcileStartupSessions(java.util.Collections.emptyList());
+            return;
+        }
 
         Logger.logInfo(LOG_TAG, "Restoring " + snaps.size() + " session(s) from persisted state");
         for (int i = 0; i < snaps.size(); i++) {
@@ -454,6 +460,14 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                 Logger.logError(LOG_TAG, "Restore failed for session '" + s.name + "': " + t);
             }
         }
+
+        List<String> liveHandles = new ArrayList<>();
+        for (TermuxSession session : mShellManager.mTermuxSessions) {
+            if (session != null && session.getTerminalSession() != null) {
+                liveHandles.add(session.getTerminalSession().mHandle);
+            }
+        }
+        WorkspaceManager.reconcileStartupSessions(liveHandles);
     }
 
     /** Process {@link TERMUX_SERVICE#ACTION_SERVICE_EXECUTE} intent to execute a shell command in
@@ -708,6 +722,10 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         }
 
         mShellManager.mTermuxSessions.add(newTermuxSession);
+        TerminalSession createdTerminalSession = newTermuxSession.getTerminalSession();
+        if (createdTerminalSession != null) {
+            WorkspaceManager.associateSession(createdTerminalSession.mHandle);
+        }
 
         // Keep the persisted tab snapshot current and (re)acquire the keep-alive wake lock now that
         // at least one session exists.
@@ -755,6 +773,10 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                 TermuxPluginUtils.processPluginExecutionCommandResult(this, LOG_TAG, executionCommand);
 
             mShellManager.mTermuxSessions.remove(termuxSession);
+            TerminalSession exitedTerminalSession = termuxSession.getTerminalSession();
+            if (exitedTerminalSession != null) {
+                WorkspaceManager.dissociateSession(exitedTerminalSession.mHandle);
+            }
 
             // Snapshot the reduced list so an exited session is NOT rehydrated next launch, and
             // release the keep-alive wake lock once the last session is gone.

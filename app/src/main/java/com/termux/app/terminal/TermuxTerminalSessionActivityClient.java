@@ -18,7 +18,9 @@ import androidx.annotation.Nullable;
 
 import com.termux.BuildConfig;
 import com.termux.R;
-import com.newtermux.features.NewTermuxSettings;
+import com.betermux.features.BeTermuxSettings;
+import com.betermux.workspace.WorkspaceManager;
+import com.betermux.workspace.WorkspaceSessionPolicy;
 import com.termux.shared.interact.ShareUtils;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 import com.termux.shared.termux.interact.TextInputDialogUtils;
@@ -37,6 +39,8 @@ import com.termux.terminal.TextStyle;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
 /** The {@link TerminalSessionClient} implementation that may require an {@link Activity} for its interface methods. */
@@ -378,12 +382,13 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         } else {
             TerminalSession currentSession = mActivity.getCurrentSession();
 
-            String workingDirectory;
-            if (currentSession == null) {
-                workingDirectory = mActivity.getProperties().getDefaultWorkingDirectory();
-            } else {
-                workingDirectory = currentSession.getCwd();
-            }
+            String workingDirectory = WorkspaceSessionPolicy.resolveNewSessionWorkingDirectory(
+                BeTermuxSettings.isWorkspacesEnabled(mActivity),
+                WorkspaceManager.activeWorkspace(),
+                currentSession != null ? currentSession.mHandle : null,
+                currentSession != null ? currentSession.getCwd() : null,
+                mActivity.getProperties().getDefaultWorkingDirectory()
+            );
 
             // Demo build: use the fake shell written to the demo's own files dir; also use a
             // writable working directory since /data/data/com.termux/ is not accessible.
@@ -398,10 +403,13 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
             if (newTermuxSession == null) return;
 
             TerminalSession newTerminalSession = newTermuxSession.getTerminalSession();
+            if (newTerminalSession != null) {
+                WorkspaceManager.associateSession(newTerminalSession.mHandle);
+            }
             setCurrentSession(newTerminalSession);
 
             // Startup script — dot-source into the live shell if enabled and file exists
-            if (NewTermuxSettings.isStartupScriptEnabled(mActivity)) {
+            if (BeTermuxSettings.isStartupScriptEnabled(mActivity)) {
                 String scriptPath = TermuxConstants.TERMUX_DATA_HOME_DIR_PATH + "/startup-script.sh";
                 if (new java.io.File(scriptPath).exists()) {
                     String cmd = ". " + scriptPath + "\n";
@@ -465,12 +473,31 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
             // There are no sessions to show, so finish the activity.
             mActivity.finishActivityIfNotFinishing();
         } else {
-            if (index >= size) {
-                index = size - 1;
+            List<String> remainingHandles = new ArrayList<>(size);
+            for (TermuxSession ts : service.getTermuxSessions()) {
+                if (ts != null && ts.getTerminalSession() != null) {
+                    remainingHandles.add(ts.getTerminalSession().mHandle);
+                }
             }
-            TermuxSession termuxSession = service.getTermuxSession(index);
-            if (termuxSession != null)
-                setCurrentSession(termuxSession.getTerminalSession());
+            String nextHandle = WorkspaceSessionPolicy.selectNextSessionHandleAfterRemoval(
+                remainingHandles,
+                index,
+                WorkspaceManager.activeWorkspace(),
+                BeTermuxSettings.isWorkspacesEnabled(mActivity)
+            );
+            TerminalSession nextSession = nextHandle != null
+                ? service.getTerminalSessionForHandle(nextHandle)
+                : null;
+            if (nextSession == null) {
+                int fallbackIndex = Math.max(0, Math.min(index, size - 1));
+                TermuxSession termuxSession = service.getTermuxSession(fallbackIndex);
+                if (termuxSession != null) {
+                    nextSession = termuxSession.getTerminalSession();
+                }
+            }
+            if (nextSession != null) {
+                setCurrentSession(nextSession);
+            }
         }
     }
 
@@ -520,8 +547,8 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
                     props.load(in);
                 }
             } else {
-                String savedTheme = com.newtermux.features.NewTermuxColorTheme.getCurrentTheme(mActivity);
-                String themeContent = com.newtermux.features.NewTermuxColorTheme.getThemeContent(mActivity, savedTheme);
+                String savedTheme = com.betermux.features.BeTermuxColorTheme.getCurrentTheme(mActivity);
+                String themeContent = com.betermux.features.BeTermuxColorTheme.getThemeContent(mActivity, savedTheme);
                 if (themeContent != null) {
                     try (InputStream in = new java.io.ByteArrayInputStream(themeContent.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
                         props.load(in);
