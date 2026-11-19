@@ -433,16 +433,19 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         for (int i = 0; i < snaps.size(); i++) {
             SessionStatePersister.Snapshot s = snaps.get(i);
             try {
-                TermuxSession newSession = createTermuxSession(
+                ExecutionCommand executionCommand = new ExecutionCommand(
+                    TermuxShellManager.getNextShellId(),
                     /* executablePath   */ null,   // default login shell
                     /* arguments        */ null,
                     /* stdin            */ null,
                     /* workingDirectory */ (s.cwd == null || s.cwd.isEmpty())
                                             ? TermuxConstants.TERMUX_HOME_DIR_PATH
                                             : s.cwd,
-                    /* isFailSafe       */ s.failsafe,
-                    /* sessionName      */ s.name
+                    Runner.TERMINAL_SESSION.getName(),
+                    /* isFailSafe       */ s.failsafe
                 );
+                executionCommand.shellName = s.name;
+                TermuxSession newSession = createTermuxSessionInternal(executionCommand, true);
 
                 if (newSession != null && s.resumeCommand != null && !s.resumeCommand.trim().isEmpty()) {
                     final String cmd = s.resumeCommand.trim();
@@ -689,6 +692,11 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     /** Create a {@link TermuxSession}. */
     @Nullable
     public synchronized TermuxSession createTermuxSession(ExecutionCommand executionCommand) {
+        return createTermuxSessionInternal(executionCommand, false);
+    }
+
+    @Nullable
+    private synchronized TermuxSession createTermuxSessionInternal(ExecutionCommand executionCommand, boolean skipAutoWorkspaceAssociation) {
         if (executionCommand == null) return null;
 
         Logger.logDebug(LOG_TAG, "Creating \"" + executionCommand.getCommandIdAndLabelLogString() + "\" TermuxSession");
@@ -722,9 +730,11 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         }
 
         mShellManager.mTermuxSessions.add(newTermuxSession);
-        TerminalSession createdTerminalSession = newTermuxSession.getTerminalSession();
-        if (createdTerminalSession != null) {
-            WorkspaceManager.associateSession(createdTerminalSession.mHandle);
+        if (!skipAutoWorkspaceAssociation) {
+            TerminalSession createdTerminalSession = newTermuxSession.getTerminalSession();
+            if (createdTerminalSession != null) {
+                WorkspaceManager.associateSession(createdTerminalSession.mHandle);
+            }
         }
 
         // Keep the persisted tab snapshot current and (re)acquire the keep-alive wake lock now that

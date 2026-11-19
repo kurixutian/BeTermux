@@ -2373,36 +2373,62 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     public void switchToWorkspace(@NonNull String workspaceId) {
+        if (mTermuxService == null) return;
+        String previousWorkspaceId = WorkspaceManager.activeWorkspace().getId();
         if (!WorkspaceManager.setActiveWorkspace(workspaceId)) return;
-        selectOrCreateWorkspaceSession(workspaceId);
-        updateSessionTabs();
+        if (!selectOrCreateWorkspaceSession(workspaceId)) {
+            WorkspaceManager.setActiveWorkspace(previousWorkspaceId);
+            updateSessionTabs();
+        }
     }
 
-    public void selectOrCreateWorkspaceSession(@NonNull String workspaceId) {
-        if (mTermuxService == null) return;
-        ProjectWorkspace targetWorkspace = null;
+    public boolean selectOrCreateWorkspaceSession(@NonNull String workspaceId) {
+        if (mTermuxService == null) return false;
+        ProjectWorkspace targetWorkspace = findWorkspaceById(workspaceId);
+        if (targetWorkspace == null) return false;
+
+        List<TermuxSession> workspaceSessions = filterSessionsForTargetWorkspace(targetWorkspace);
+        if (!workspaceSessions.isEmpty()) {
+            switchToTerminalTab(workspaceSessions.get(0).getTerminalSession());
+            return true;
+        }
+
+        if (mTermuxTerminalSessionActivityClient == null) return false;
+        mTermuxTerminalSessionActivityClient.addNewSession(false, null);
+
+        ProjectWorkspace refreshedTarget = findWorkspaceById(workspaceId);
+        if (refreshedTarget == null) return false;
+        List<TermuxSession> createdSessions = filterSessionsForTargetWorkspace(refreshedTarget);
+        if (createdSessions.isEmpty()) {
+            return false;
+        }
+
+        TerminalSession targetSession = createdSessions.get(0).getTerminalSession();
+        switchToTerminalTab(getCurrentSession() == targetSession ? null : targetSession);
+        return true;
+    }
+
+    @Nullable
+    private ProjectWorkspace findWorkspaceById(@NonNull String workspaceId) {
         for (ProjectWorkspace ws : WorkspaceManager.INSTANCE.getState().getValue().getWorkspaces()) {
             if (ws.getId().equals(workspaceId)) {
-                targetWorkspace = ws;
-                break;
+                return ws;
             }
         }
-        if (targetWorkspace == null) return;
+        return null;
+    }
 
-        List<TermuxSession> workspaceSessions = WorkspaceSessionPolicy.filterItemsForWorkspace(
+    @NonNull
+    private List<TermuxSession> filterSessionsForTargetWorkspace(@NonNull ProjectWorkspace workspace) {
+        if (mTermuxService == null) return Collections.emptyList();
+        return WorkspaceSessionPolicy.filterItemsForWorkspace(
             mTermuxService.getTermuxSessions(),
-            targetWorkspace,
+            workspace,
             true,
             session -> session != null && session.getTerminalSession() != null
                 ? session.getTerminalSession().mHandle
                 : null
         );
-        if (!workspaceSessions.isEmpty()) {
-            switchToTerminalTab(workspaceSessions.get(0).getTerminalSession());
-        } else if (mTermuxTerminalSessionActivityClient != null) {
-            mTermuxTerminalSessionActivityClient.addNewSession(false, null);
-            switchToTerminalTab(getCurrentSession());
-        }
     }
 
     /** Same as Rename in the session tab menu. */

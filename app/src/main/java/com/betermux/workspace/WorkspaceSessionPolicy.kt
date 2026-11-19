@@ -35,7 +35,10 @@ object WorkspaceSessionPolicy {
 
         val currentInActiveWorkspace = currentSessionHandle != null &&
             currentSessionHandle in activeWorkspace.sessionHandles
-        if (currentInActiveWorkspace && !currentSessionCwd.isNullOrBlank()) {
+        if (currentInActiveWorkspace &&
+            !currentSessionCwd.isNullOrBlank() &&
+            directoryExists(currentSessionCwd)
+        ) {
             return currentSessionCwd
         }
 
@@ -76,6 +79,31 @@ object WorkspaceSessionPolicy {
         return items.filter { item ->
             val handle = extractor.handleOf(item)
             handle != null && handle in allowed
+        }
+    }
+
+    /**
+     * Computes the removal index to pass to [selectNextSessionHandleAfterRemoval] using
+     * workspace-local indices when [workspacesEnabled] is true and at least one other session
+     * remains in [activeWorkspace], or global indices otherwise.
+     */
+    @JvmStatic
+    fun resolveRemovalIndex(
+        handlesBeforeRemoval: List<String>,
+        removedHandle: String,
+        activeWorkspace: ProjectWorkspace,
+        workspacesEnabled: Boolean
+    ): Int {
+        val globalIndex = handlesBeforeRemoval.indexOf(removedHandle).coerceAtLeast(0)
+        if (!workspacesEnabled) return globalIndex
+
+        val allowed = activeWorkspace.sessionHandles.toHashSet()
+        val inWorkspace = handlesBeforeRemoval.filter { it in allowed }
+        val localIndex = inWorkspace.indexOf(removedHandle)
+        return if (localIndex >= 0 && inWorkspace.size > 1) {
+            localIndex
+        } else {
+            globalIndex
         }
     }
 

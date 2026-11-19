@@ -19,6 +19,7 @@ import androidx.annotation.Nullable;
 import com.termux.BuildConfig;
 import com.termux.R;
 import com.betermux.features.BeTermuxSettings;
+import com.betermux.workspace.ProjectWorkspace;
 import com.betermux.workspace.WorkspaceManager;
 import com.betermux.workspace.WorkspaceSessionPolicy;
 import com.termux.shared.interact.ShareUtils;
@@ -466,13 +467,27 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
-        int index = service.removeTermuxSession(finishedSession);
+        boolean workspacesEnabled = BeTermuxSettings.isWorkspacesEnabled(mActivity);
+        ProjectWorkspace activeBefore = WorkspaceManager.activeWorkspace();
+        List<String> handlesBefore = new ArrayList<>();
+        for (TermuxSession ts : service.getTermuxSessions()) {
+            if (ts != null && ts.getTerminalSession() != null) {
+                handlesBefore.add(ts.getTerminalSession().mHandle);
+            }
+        }
+        String removedHandle = finishedSession != null ? finishedSession.mHandle : null;
+
+        int globalIndex = service.removeTermuxSession(finishedSession);
 
         int size = service.getTermuxSessionsSize();
         if (size == 0) {
             // There are no sessions to show, so finish the activity.
             mActivity.finishActivityIfNotFinishing();
         } else {
+            int removalIndex = removedHandle != null
+                ? WorkspaceSessionPolicy.resolveRemovalIndex(handlesBefore, removedHandle, activeBefore, workspacesEnabled)
+                : Math.max(0, globalIndex);
+
             List<String> remainingHandles = new ArrayList<>(size);
             for (TermuxSession ts : service.getTermuxSessions()) {
                 if (ts != null && ts.getTerminalSession() != null) {
@@ -481,21 +496,27 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
             }
             String nextHandle = WorkspaceSessionPolicy.selectNextSessionHandleAfterRemoval(
                 remainingHandles,
-                index,
-                WorkspaceManager.activeWorkspace(),
-                BeTermuxSettings.isWorkspacesEnabled(mActivity)
+                removalIndex,
+                activeBefore,
+                workspacesEnabled
             );
             TerminalSession nextSession = nextHandle != null
                 ? service.getTerminalSessionForHandle(nextHandle)
                 : null;
             if (nextSession == null) {
-                int fallbackIndex = Math.max(0, Math.min(index, size - 1));
+                int fallbackIndex = Math.max(0, Math.min(globalIndex, size - 1));
                 TermuxSession termuxSession = service.getTermuxSession(fallbackIndex);
                 if (termuxSession != null) {
                     nextSession = termuxSession.getTerminalSession();
                 }
             }
             if (nextSession != null) {
+                if (workspacesEnabled) {
+                    ProjectWorkspace nextWorkspace = WorkspaceManager.workspaceForSession(nextSession.mHandle);
+                    if (nextWorkspace != null && !nextWorkspace.getId().equals(WorkspaceManager.activeWorkspace().getId())) {
+                        WorkspaceManager.setActiveWorkspace(nextWorkspace.getId());
+                    }
+                }
                 setCurrentSession(nextSession);
             }
         }
