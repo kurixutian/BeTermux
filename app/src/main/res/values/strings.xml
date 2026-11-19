@@ -238,9 +238,14 @@
     <!-- Keep alive in background / battery optimization -->
     <string name="keep_alive_background_title">Keep alive in background</string>
     <string name="keep_alive_background_summary">Hold a foreground wake lock while sessions are running so the app survives when you launch a game. Turn off to save battery.</string>
-    <string name="battery_opt_prompt_title">Keep NewTermux running</string>
-    <string name="battery_opt_prompt_message">To keep your terminal sessions alive while a game is in the foreground, allow NewTermux to ignore battery optimizations. Without this, Android may still shut the app down in the background.</string>
+    <string name="battery_opt_prompt_title">Keep BeTermux running</string>
+    <string name="battery_opt_prompt_message">To keep your terminal sessions alive while a game is in the foreground, allow BeTermux to ignore battery optimizations. Without this, Android may still shut the app down in the background.</string>
     <string name="battery_opt_prompt_allow">Allow</string>
     <string name="battery_opt_prompt_later">Not now</string>
+
+    <!-- Dual Sidebars & Project Workspaces -->
+    <string name="open_project_files_drawer">Open project files drawer</string>
+    <string name="close_project_files_drawer">Close project files drawer</string>
+    <string name="files_menu_description">Files</string>
 
 </resources>

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/betermux_toolbar_container"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/nt_toolbar_bg">
+
+    <!-- Clean Warp header: brand identity + high-frequency icon controls -->
+    <LinearLayout
+        android:id="@+id/betermux_toolbar_row"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
+
+        <ImageButton
+            android:id="@+id/btn_tab_drawer"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="4dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Open workspace session drawer"
+            android:padding="14dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_tab_drawer" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- Files menu / Project Files right drawer toggle -->
+        <ImageButton
+            android:id="@+id/btn_files"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/open_project_files_drawer"
+            android:focusable="false"
+            android:focusableInTouchMode="false"
+            android:src="@drawable/ic_folder"
+            android:tint="@color/nt_toolbar_icon"
+            android:padding="13dp" />
+
+        <!-- Localhost Servers & Running Ports -->
+        <ImageButton
+            android:id="@+id/btn_localhost_tab"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Localhost Servers"
+            android:focusable="false"
+            android:focusableInTouchMode="false"
+            android:src="@drawable/ic_localhost"
+            android:tint="@color/nt_toolbar_icon"
+            android:padding="13dp" />
+
+        <!-- Extra Keys Toggle Button -->
+        <ImageButton
+            android:id="@+id/btn_extra_keys"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Toggle Extra Keys"
+            android:focusable="false"
+            android:focusableInTouchMode="false"
+            android:src="@drawable/ic_keyboard"
+            android:tint="@color/nt_toolbar_icon"
+            android:padding="13dp" />
+
+        <!-- More options menu button -->
+        <ImageButton
+            android:id="@+id/btn_more_menu"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More Options"
+            android:focusable="false"
+            android:focusableInTouchMode="false"
+            android:src="@drawable/ic_more_vert"
+            android:tint="@color/nt_toolbar_icon"
+            android:padding="13dp" />
+
+    </LinearLayout>
+
+    <!-- Specular hairline divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/nt_divider" />
+
+    <!-- Unified scrollable tab strip (terminals, dev browsers, files, localhost) -->
+    <HorizontalScrollView
+        android:id="@+id/session_tabs_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:scrollbars="none"
+        android:focusable="false"
+        android:focusableInTouchMode="false"
+        android:background="@color/nt_tab_bg">
+
+        <LinearLayout
+            android:id="@+id/session_pip_container"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:gravity="center_vertical" />
+
+    </HorizontalScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/nt_divider" />
+
+</LinearLayout>

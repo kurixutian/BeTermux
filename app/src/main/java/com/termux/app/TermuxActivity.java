@@ -93,7 +93,9 @@ import com.betermux.features.SpeechInputManager;
 import com.betermux.theme.BackgroundImageStore;
 import com.betermux.workspace.ProjectWorkspace;
 import com.betermux.workspace.WorkspaceManager;
+import com.betermux.workspace.WorkspaceModelsKt;
 import com.betermux.workspace.WorkspaceSessionPolicy;
+import com.betermux.workspace.WorkspaceSleepState;
 import com.termux.app.terminal.MiniTerminalPipView;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 
@@ -136,6 +138,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     @Nullable
     private com.betermux.workspace.WorkspaceHostBridge mWorkspaceHostBridge;
+    private boolean mTabBarSuppressedForRightDrawer = false;
 
     /** Path to cd into once a terminal session is available (set from a cold-start CD_TO_PATH intent). */
     @Nullable
@@ -741,7 +744,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private void applyFeatureSettings() {
         // Hide/show the whole scroll container (chip group lives inside it)
-        setVisible(R.id.session_tabs_scroll, BeTermuxSettings.isSessionTabsEnabled(this));
+        syncSessionTabsBarVisibility();
+        updateRightDrawerToolbarButton(mWorkspaceHostBridge != null && mWorkspaceHostBridge.isRightDrawerOpen());
         // Autocorrect initial enabled state
         if (mAutoCorrectHandler != null)
             mAutoCorrectHandler.setEnabled(BeTermuxSettings.isAutocorrectEnabled(this));
@@ -1077,6 +1081,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         View btnFiles = findViewById(R.id.btn_files);
         if (btnFiles != null) {
             btnFiles.setOnClickListener(v -> {
+                if (BeTermuxSettings.isDualSidebarsEnabled(this)
+                        && BeTermuxSettings.isRightFileExplorerEnabled(this)
+                        && mWorkspaceHostBridge != null) {
+                    mWorkspaceHostBridge.toggleRightDrawer();
+                    return;
+                }
                 android.widget.PopupMenu popup = new android.widget.PopupMenu(this, v);
                 popup.getMenu().add(0, 1, 0, "Project directory");
                 popup.getMenu().add(0, 2, 1, "File manager");
@@ -1090,13 +1100,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                         openFileTab(dir);
                         return true;
                     } else if (item.getItemId() == 2) {
-                        startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class));
+                        openFileManagerActivity();
                         return true;
                     }
                     return false;
                 });
                 popup.show();
             });
+            updateRightDrawerToolbarButton(mWorkspaceHostBridge != null && mWorkspaceHostBridge.isRightDrawerOpen());
         }
 
         View btnLocalhost = findViewById(R.id.btn_localhost_tab);
@@ -1996,6 +2007,17 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (container == null) return null;
         container.removeAllViews();
 
+        if (BeTermuxSettings.isWorkspacesEnabled(this)) {
+            sessions = WorkspaceSessionPolicy.filterItemsForWorkspace(
+                sessions,
+                WorkspaceManager.activeWorkspace(),
+                true,
+                session -> session != null && session.getTerminalSession() != null
+                    ? session.getTerminalSession().mHandle
+                    : null
+            );
+        }
+
         float density = getResources().getDisplayMetrics().density;
         int accentColor = BeTermuxTheme.getAccentColor(this);
         View activeTabView = null;
@@ -2334,8 +2356,115 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     public void switchToSession(TerminalSession session) {
         if (mTermuxTerminalSessionActivityClient == null || session == null) return;
-        mTermuxTerminalSessionActivityClient.setCurrentSession(session);
+        if (BeTermuxSettings.isWorkspacesEnabled(this)) {
+            ProjectWorkspace owner = WorkspaceManager.workspaceForSession(session.mHandle);
+            if (owner != null) {
+                switchToWorkspaceAndSession(owner.getId(), session);
+                return;
+            }
+        }
+        switchToTerminalTab(session);
+    }
+
+    public void switchToWorkspaceAndSession(@NonNull String workspaceId, @Nullable TerminalSession session) {
+        if (mTermuxService == null) return;
+        if (session == null) {
+            switchToWorkspace(workspaceId);
+            return;
+        }
+        if (!WorkspaceManager.setActiveWorkspace(workspaceId)) return;
+        requestWorkspaceWakeIfNeeded(workspaceId);
+        switchToTerminalTab(session);
+    }
+
+    public void requestWorkspaceWakeIfNeeded(@NonNull String workspaceId) {
+        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(this)) return;
+        WorkspaceSleepState sleepState = WorkspaceManager.getSleepState(workspaceId);
+        if (sleepState == WorkspaceSleepState.SLEEPING || sleepState == WorkspaceSleepState.ERROR) {
+            WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE);
+        }
+    }
+
+    public void toggleWorkspaceSleep(@NonNull String workspaceId) {
+        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(this)) return;
+        WorkspaceSleepState current = WorkspaceManager.getSleepState(workspaceId);
+        if (current == WorkspaceSleepState.SLEEPING || current == WorkspaceSleepState.SUSPENDING) {
+            WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE);
+        } else {
+            WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.SLEEPING);
+        }
+    }
+
+    public void createAndSwitchWorkspace(@NonNull String name, @NonNull String rootPath) {
+        String trimmedPath = rootPath.trim();
+        if (trimmedPath.isEmpty()) return;
+        ProjectWorkspace created = WorkspaceManager.createWorkspace(name, trimmedPath);
+        switchToWorkspace(created.getId());
+    }
+
+    public void removeWorkspaceFromUi(@NonNull String workspaceId, boolean terminateSessions) {
+        if (WorkspaceModelsKt.DEFAULT_WORKSPACE_ID.equals(workspaceId)) return;
+        if (!terminateSessions) {
+            WorkspaceManager.removeWorkspace(workspaceId);
+            updateSessionTabs();
+            return;
+        }
+        List<String> handles = WorkspaceManager.removeWorkspaceAndClearSessions(workspaceId);
+        if (mTermuxService != null && !handles.isEmpty()) {
+            java.util.Set<String> toClose = new java.util.HashSet<>(handles);
+            ProjectWorkspace defaultWorkspace = findWorkspaceById(WorkspaceModelsKt.DEFAULT_WORKSPACE_ID);
+            if (defaultWorkspace != null) {
+                List<TermuxSession> defaultSessions = filterSessionsForTargetWorkspace(defaultWorkspace);
+                if (defaultSessions.isEmpty()) {
+                    selectOrCreateWorkspaceSession(WorkspaceModelsKt.DEFAULT_WORKSPACE_ID);
+                } else {
+                    switchToTerminalTab(defaultSessions.get(0).getTerminalSession());
+                }
+            }
+            for (TermuxSession ts : new ArrayList<>(mTermuxService.getTermuxSessions())) {
+                if (ts != null && ts.getTerminalSession() != null && toClose.contains(ts.getTerminalSession().mHandle)) {
+                    closeSessionNow(ts.getTerminalSession());
+                }
+            }
+        }
         updateSessionTabs();
+    }
+
+    public void openFileManagerActivity() {
+        startActivity(new Intent(this, com.termux.app.activities.FileManagerActivity.class));
+    }
+
+    public void setTabBarSuppressedForRightDrawer(boolean suppressed) {
+        mTabBarSuppressedForRightDrawer = suppressed;
+        syncSessionTabsBarVisibility();
+        updateRightDrawerToolbarButton(suppressed);
+    }
+
+    private void syncSessionTabsBarVisibility() {
+        boolean show = BeTermuxSettings.isSessionTabsEnabled(this) && !mTabBarSuppressedForRightDrawer;
+        setVisible(R.id.session_tabs_scroll, show);
+    }
+
+    private void updateRightDrawerToolbarButton(boolean isOpen) {
+        View btnFiles = findViewById(R.id.btn_files);
+        if (btnFiles == null) return;
+        boolean rightEnabled = BeTermuxSettings.isDualSidebarsEnabled(this)
+            && BeTermuxSettings.isRightFileExplorerEnabled(this);
+        int tintColor = (rightEnabled && isOpen)
+            ? BeTermuxTheme.getAccentColor(this)
+            : ContextCompat.getColor(this, R.color.nt_toolbar_icon);
+        if (btnFiles instanceof ImageView) {
+            androidx.core.widget.ImageViewCompat.setImageTintList(
+                (ImageView) btnFiles,
+                android.content.res.ColorStateList.valueOf(tintColor)
+            );
+        }
+        if (rightEnabled) {
+            btnFiles.setContentDescription(getString(
+                isOpen ? R.string.close_project_files_drawer : R.string.open_project_files_drawer));
+        } else {
+            btnFiles.setContentDescription(getString(R.string.files_menu_description));
+        }
     }
 
     private List<String> collectLiveHandles() {
@@ -2376,6 +2505,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxService == null) return;
         String previousWorkspaceId = WorkspaceManager.activeWorkspace().getId();
         if (!WorkspaceManager.setActiveWorkspace(workspaceId)) return;
+        requestWorkspaceWakeIfNeeded(workspaceId);
         if (!selectOrCreateWorkspaceSession(workspaceId)) {
             WorkspaceManager.setActiveWorkspace(previousWorkspaceId);
             updateSessionTabs();
@@ -3051,7 +3181,11 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     @SuppressLint("RtlHardcoded")
     @Override
     public void onBackPressed() {
-        if (mIsLocalhostTabActive) {
+        if (mWorkspaceHostBridge != null && mWorkspaceHostBridge.isRightDrawerOpen()) {
+            mWorkspaceHostBridge.closeRightDrawer();
+        } else if (mWorkspaceHostBridge != null && mWorkspaceHostBridge.isDrawerOpen()) {
+            mWorkspaceHostBridge.closeDrawer();
+        } else if (mIsLocalhostTabActive) {
             switchToTerminalTab(getCurrentSession());
         } else if (mActiveFileTabIndex >= 0) {
             closeFileTab(mActiveFileTabIndex);
