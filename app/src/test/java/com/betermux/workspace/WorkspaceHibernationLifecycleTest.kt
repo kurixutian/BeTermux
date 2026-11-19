@@ -5,6 +5,9 @@ import android.system.OsConstants
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -389,5 +392,225 @@ class WorkspaceHibernationLifecycleTest {
         composeRule.onAllNodesWithText("Remote SSH sessions may drop during long sleep", substring = true)
             .onFirst()
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun hibernationDisabledHidesAllSleepBadgesEvenIfWorkspaceStateIsNonAwake() {
+        val workspaces = listOf(
+            WorkspaceDrawerItem(
+                id = DEFAULT_WORKSPACE_ID,
+                name = "Default",
+                rootPath = "/home",
+                sessionCount = 1,
+                sleepState = WorkspaceSleepState.SLEEPING,
+                isActive = true,
+                isDefault = true
+            ),
+            WorkspaceDrawerItem(
+                id = "ws-err",
+                name = "Err",
+                rootPath = "/home/err",
+                sessionCount = 1,
+                sleepState = WorkspaceSleepState.ERROR,
+                isActive = false,
+                isDefault = false
+            ),
+            WorkspaceDrawerItem(
+                id = "ws-susp",
+                name = "Susp",
+                rootPath = "/home/susp",
+                sessionCount = 1,
+                sleepState = WorkspaceSleepState.SUSPENDING,
+                isActive = false,
+                isDefault = false
+            ),
+            WorkspaceDrawerItem(
+                id = "ws-res",
+                name = "Res",
+                rootPath = "/home/res",
+                sessionCount = 1,
+                sleepState = WorkspaceSleepState.RESUMING,
+                isActive = false,
+                isDefault = false
+            )
+        )
+
+        composeRule.setContent {
+            BeTermuxComposeTheme(context) {
+                CollapsibleTabDrawer(
+                    visible = true,
+                    sessions = listOf(DrawerSessionItem("h1", "Shell", null, isActive = true, isRunning = true)),
+                    workspaces = workspaces,
+                    hibernationEnabled = false,
+                    onDismiss = {},
+                    onSelectSession = {},
+                    onCloseSession = {},
+                    onNewSession = {},
+                    onOpenDevBrowser = {},
+                    onOpenFileManager = {},
+                    onOpenLocalhost = {},
+                    onOpenQuickCommands = {},
+                    onOpenSettings = {}
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("zzz").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Error").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Suspending…").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Waking…").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Remote SSH sessions may drop during long sleep", substring = true).assertCountEquals(0)
+        composeRule.onNodeWithTag("workspace_sleep_badge_$DEFAULT_WORKSPACE_ID").assertDoesNotExist()
+        composeRule.onNodeWithTag("workspace_sleep_badge_ws-err").assertDoesNotExist()
+
+        val reportsAwake = SemanticsMatcher("contentDescription contains Awake") { node ->
+            val desc = node.config.getOrElseNullable(SemanticsProperties.ContentDescription) { null }
+            desc?.any { it.contains("Awake") } == true
+        }
+        composeRule.onNodeWithTag("workspace_row_$DEFAULT_WORKSPACE_ID").assert(reportsAwake)
+        composeRule.onNodeWithTag("workspace_row_ws-err").assert(reportsAwake)
+    }
+
+    @Test
+    fun requestWorkspaceWakeIfNeededRunsOnReadyAfterUngatingAndImmediatelyWhenAwake() = runBlocking<Unit> {
+        val ws = WorkspaceManager.createWorkspace("OpenHere", "/tmp/open-here")
+        val session = newTestSession(910)
+        WorkspaceManager.associateSession(session.mHandle, ws.id)
+
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 910, comm = "bash", state = 'S', ppid = 1, pgid = 910, sid = 910, uid = 10912, startTimeTicks = 11000L)
+            )
+        )
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        val coordinator = WorkspaceHibernationCoordinator(
+            context = context,
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        )
+
+        // 1. Already AWAKE -> onReady runs immediately
+        var awakeReadyCalls = 0
+        val immediateJob = coordinator.requestWorkspaceWakeIfNeeded(ws.id, { listOf(session) }) {
+            awakeReadyCalls += 1
+        }
+        assertEquals(null, immediateJob)
+        assertEquals(1, awakeReadyCalls)
+
+        // 2. SLEEPING -> onReady runs only AFTER SIGCONT and un-gating complete
+        assertEquals(WorkspaceSleepState.SLEEPING, controller.sleepWorkspace(ws.id, listOf(session)))
+        assertTrue(session.isInputGated)
+
+        var readySawUngated = false
+        var readySawAwakeState = false
+        var readySawRunningProcess = false
+        val wakeJob = coordinator.requestWorkspaceWakeIfNeeded(ws.id, { listOf(session) }) {
+            readySawUngated = !session.isInputGated
+            readySawAwakeState = WorkspaceManager.getSleepState(ws.id) == WorkspaceSleepState.AWAKE
+            readySawRunningProcess = ops.processes[910]?.state == 'S'
+        }
+        wakeJob?.join()
+
+        assertTrue("onReady must run only after TerminalSession is un-gated", readySawUngated)
+        assertTrue("onReady must observe AWAKE sleep state", readySawAwakeState)
+        assertTrue("onReady must observe resumed process", readySawRunningProcess)
+        coordinator.destroy()
+    }
+
+    @Test
+    fun closeSessionsSequentiallyCompletesAllRemovalsBeforeOnAllClosed() = runBlocking<Unit> {
+        val ws = WorkspaceManager.createWorkspace("BatchClose", "/tmp/batch-close")
+        val s1 = newTestSession(920)
+        val s2 = newTestSession(921)
+        WorkspaceManager.associateSession(s1.mHandle, ws.id)
+        WorkspaceManager.associateSession(s2.mHandle, ws.id)
+
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 920, comm = "bash", state = 'S', ppid = 1, pgid = 920, sid = 920, uid = 10912, startTimeTicks = 12000L),
+                FakeProcess(pid = 921, comm = "bash", state = 'S', ppid = 1, pgid = 921, sid = 921, uid = 10912, startTimeTicks = 12010L)
+            )
+        )
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, controller.sleepWorkspace(ws.id, listOf(s1, s2)))
+
+        val coordinator = WorkspaceHibernationCoordinator(
+            context = context,
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        )
+
+        val events = mutableListOf<String>()
+        val job = coordinator.closeSessionsSequentially(
+            workspaceId = ws.id,
+            sessions = listOf(s1, s2),
+            onEachClosed = { closed ->
+                assertFalse("Process for ${closed.mHandle} must be dead before removal", ops.processes.containsKey(closed.pid))
+                events.add("removed:${closed.mHandle}")
+            },
+            onAllClosed = {
+                events.add("all_closed")
+            }
+        )
+        job?.join()
+
+        assertEquals(
+            listOf("removed:${s1.mHandle}", "removed:${s2.mHandle}", "all_closed"),
+            events
+        )
+        assertFalse(coordinator.isSessionTerminating(s1.mHandle))
+        assertFalse(coordinator.isSessionTerminating(s2.mHandle))
+        coordinator.destroy()
+    }
+
+    @Test
+    fun destroyingCoordinatorMidWakeStillCompletesWakeAndUngatesWithoutCallingUiCallback() = runBlocking<Unit> {
+        val ws = WorkspaceManager.createWorkspace("RotateWake", "/tmp/rotate-wake")
+        val session = newTestSession(930)
+        WorkspaceManager.associateSession(session.mHandle, ws.id)
+
+        val sigContEntered = CompletableDeferred<Unit>()
+        val releaseSigCont = CompletableDeferred<Unit>()
+        val backingOps = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 930, comm = "bash", state = 'S', ppid = 1, pgid = 930, sid = 930, uid = 10912, startTimeTicks = 13000L)
+            )
+        )
+        var gateSignals = false
+        val ops = object : ProcessOps by backingOps {
+            override fun sendSignal(pid: Int, signal: Int): SignalStatus {
+                if (gateSignals && signal == OsConstants.SIGCONT) {
+                    sigContEntered.complete(Unit)
+                    runBlocking { releaseSigCont.await() }
+                }
+                return backingOps.sendSignal(pid, signal)
+            }
+        }
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, controller.sleepWorkspace(ws.id, listOf(session)))
+        assertTrue(session.isInputGated)
+
+        gateSignals = true
+        val coordinator = WorkspaceHibernationCoordinator(
+            context = context,
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        )
+        var uiCallbackInvoked = false
+        val wakeJob = coordinator.requestWorkspaceWakeIfNeeded(ws.id, { listOf(session) }) {
+            uiCallbackInvoked = true
+        }
+        assertTrue(wakeJob != null)
+        sigContEntered.await()
+
+        // Simulate Activity.onDestroy() cancelling the coordinator mid-wake
+        coordinator.destroy()
+        releaseSigCont.complete(Unit)
+        wakeJob!!.join()
+
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        assertFalse("TerminalSession must still be un-gated even if Activity was destroyed mid-wake", session.isInputGated)
+        assertEquals('S', backingOps.processes[930]?.state)
+        assertFalse("Destroyed activity UI callback must not be invoked", uiCallbackInvoked)
     }
 }

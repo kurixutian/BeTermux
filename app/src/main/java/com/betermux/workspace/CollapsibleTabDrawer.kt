@@ -461,9 +461,10 @@ private fun WorkspaceRow(
     val border = if (item.isActive) accent else palette.borderSubtle
     var menuExpanded by remember { mutableStateOf(false) }
 
+    val effectiveSleepState = if (hibernationEnabled) item.sleepState else WorkspaceSleepState.AWAKE
     val sleepBadgeText: String?
     val sleepBadgeColor: Color
-    when (item.sleepState) {
+    when (effectiveSleepState) {
         WorkspaceSleepState.SLEEPING -> {
             sleepBadgeText = "zzz"
             sleepBadgeColor = palette.textSecondary

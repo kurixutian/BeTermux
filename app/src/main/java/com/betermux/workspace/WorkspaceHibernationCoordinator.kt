@@ -31,6 +31,10 @@ class WorkspaceHibernationCoordinator @JvmOverloads constructor(
         fun onComplete()
     }
 
+    fun interface SessionClosedCallback {
+        fun onSessionClosed(session: TerminalSession)
+    }
+
     private val appContext: Context = context.applicationContext ?: context
     private val terminatingLock = Any()
     private val terminatingHandles = HashSet<String>()
@@ -48,10 +52,12 @@ class WorkspaceHibernationCoordinator @JvmOverloads constructor(
 
         return scope.launch {
             val sessions = sessionsProvider.getSessions()
-            if (currentState == WorkspaceSleepState.SLEEPING || currentState == WorkspaceSleepState.ERROR) {
-                controller.wakeWorkspace(workspaceId, sessions)
-            } else {
-                controller.sleepWorkspace(workspaceId, sessions)
+            withContext(NonCancellable) {
+                if (currentState == WorkspaceSleepState.SLEEPING || currentState == WorkspaceSleepState.ERROR) {
+                    controller.wakeWorkspace(workspaceId, sessions)
+                } else {
+                    controller.sleepWorkspace(workspaceId, sessions)
+                }
             }
             if (isActive) {
                 onComplete.onComplete()
@@ -64,14 +70,20 @@ class WorkspaceHibernationCoordinator @JvmOverloads constructor(
         sessionsProvider: SessionListProvider,
         onComplete: CompletionCallback = CompletionCallback {}
     ): Job? {
-        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) return null
+        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) {
+            onComplete.onComplete()
+            return null
+        }
         val currentState = WorkspaceManager.getSleepState(workspaceId)
-        if (currentState != WorkspaceSleepState.SLEEPING && currentState != WorkspaceSleepState.ERROR) {
+        if (currentState == WorkspaceSleepState.AWAKE) {
+            onComplete.onComplete()
             return null
         }
 
         return scope.launch {
-            controller.wakeWorkspace(workspaceId, sessionsProvider.getSessions())
+            withContext(NonCancellable) {
+                controller.wakeWorkspace(workspaceId, sessionsProvider.getSessions())
+            }
             if (isActive) {
                 onComplete.onComplete()
             }
@@ -102,6 +114,79 @@ class WorkspaceHibernationCoordinator @JvmOverloads constructor(
             }
             if (isActive) {
                 onComplete.onComplete()
+            }
+        }
+    }
+
+    /**
+     * Sequentially terminates and removes [sessions] in order, invoking [onEachClosed] after each
+     * session finishes termination and [onAllClosed] once the full batch has completed.
+     * Preserves slot-freeing ordering required by [WorkspaceRemovalPolicy].
+     */
+    fun closeSessionsSequentially(
+        workspaceId: String,
+        sessions: List<TerminalSession>,
+        onEachClosed: SessionClosedCallback,
+        onAllClosed: CompletionCallback
+    ): Job? {
+        val reserved = ArrayList<TerminalSession>(sessions.size)
+        synchronized(terminatingLock) {
+            for (session in sessions) {
+                if (terminatingHandles.add(session.mHandle)) {
+                    reserved.add(session)
+                }
+            }
+        }
+        if (reserved.isEmpty()) {
+            onAllClosed.onComplete()
+            return null
+        }
+
+        val hibernationEnabled = BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)
+        val needsAsyncTermination = hibernationEnabled && reserved.any { it.pid > 0 }
+        if (!needsAsyncTermination) {
+            try {
+                for (session in reserved) {
+                    onEachClosed.onSessionClosed(session)
+                }
+            } finally {
+                synchronized(terminatingLock) {
+                    for (session in reserved) {
+                        terminatingHandles.remove(session.mHandle)
+                    }
+                }
+            }
+            onAllClosed.onComplete()
+            return null
+        }
+
+        return scope.launch {
+            try {
+                for (session in reserved) {
+                    try {
+                        if (session.pid > 0) {
+                            withContext(NonCancellable) {
+                                controller.terminateSingleSession(workspaceId, session)
+                            }
+                        }
+                    } finally {
+                        synchronized(terminatingLock) {
+                            terminatingHandles.remove(session.mHandle)
+                        }
+                    }
+                    if (isActive) {
+                        onEachClosed.onSessionClosed(session)
+                    }
+                }
+            } finally {
+                synchronized(terminatingLock) {
+                    for (session in reserved) {
+                        terminatingHandles.remove(session.mHandle)
+                    }
+                }
+            }
+            if (isActive) {
+                onAllClosed.onComplete()
             }
         }
     }

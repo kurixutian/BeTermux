@@ -95,12 +95,17 @@ class WorkspaceHostBridge(
                 val workspaces = if (workspacesEnabled) {
                     workspaceSnapshot.workspaces.map { ws ->
                         val wsSessions = allWorkspaceSessions[ws.id].orEmpty()
+                        val effectiveSleepState = if (hibernationEnabled) {
+                            workspaceSnapshot.sleepStates[ws.id] ?: WorkspaceSleepState.AWAKE
+                        } else {
+                            WorkspaceSleepState.AWAKE
+                        }
                         WorkspaceDrawerItem(
                             id = ws.id,
                             name = ws.name,
                             rootPath = ws.rootPath,
                             sessionCount = wsSessions.size,
-                            sleepState = workspaceSnapshot.sleepStates[ws.id] ?: WorkspaceSleepState.AWAKE,
+                            sleepState = effectiveSleepState,
                             isActive = ws.id == workspaceSnapshot.activeWorkspaceId,
                             isDefault = ws.id == DEFAULT_WORKSPACE_ID
                         )
@@ -182,9 +187,12 @@ class WorkspaceHostBridge(
                             onOpenTerminalHere = { dirPath ->
                                 closeRightDrawer()
                                 if (activeWs != null) {
-                                    activity.requestWorkspaceWakeIfNeeded(activeWs.id)
+                                    activity.requestWorkspaceWakeIfNeeded(activeWs.id) {
+                                        activity.cdCurrentSessionTo(dirPath)
+                                    }
+                                } else {
+                                    activity.cdCurrentSessionTo(dirPath)
                                 }
-                                activity.cdCurrentSessionTo(dirPath)
                             },
                             onOpenFullFileManager = {
                                 closeRightDrawer()
