@@ -3,6 +3,7 @@ package com.termux.app;
 import android.app.Application;
 import android.content.Context;
 
+import com.betermux.workspace.WorkspaceManager;
 import com.termux.BuildConfig;
 import com.termux.shared.errors.Error;
 import com.termux.shared.logger.Logger;
@@ -42,6 +43,9 @@ public class TermuxApplication extends Application {
 
         // Init app wide shell manager
         TermuxShellManager shellManager = TermuxShellManager.init(context);
+
+        // Init app wide workspace manager
+        WorkspaceManager.init(this);
 
         // Set NightMode.APP_NIGHT_MODE
         TermuxThemeUtils.setAppNightMode(properties.getNightMode());
