@@ -5,7 +5,11 @@ import android.content.SharedPreferences
 import android.os.Process
 import com.betermux.features.BeTermuxSettings
 import com.termux.terminal.TerminalSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -49,7 +53,12 @@ class WorkspaceHibernationController(
     ): WorkspaceSleepState {
         return mutexFor(workspaceId).withLock {
             if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) {
-                return@withLock WorkspaceManager.getSleepState(workspaceId)
+                sessions.forEach { it.setInputGated(false) }
+                withContext(Dispatchers.IO) {
+                    removeRecordsForWorkspace(workspaceId)
+                }
+                WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE)
+                return@withLock WorkspaceSleepState.AWAKE
             }
             if (WorkspaceManager.getSleepState(workspaceId) == WorkspaceSleepState.SLEEPING) {
                 return@withLock WorkspaceSleepState.SLEEPING
@@ -64,41 +73,78 @@ class WorkspaceHibernationController(
             liveSessions.forEach { it.setInputGated(true) }
 
             val suspendedRecords = ArrayList<ManagedSidRecord>(liveSessions.size)
+            var currentAttemptSession: TerminalSession? = null
             var failureReason: String? = null
 
-            withContext(Dispatchers.IO) {
-                for (session in liveSessions) {
-                    val shellPid = session.pid
-                    when (val res = ProcSessionController.suspendSession(shellPid, ownerUid, ops)) {
-                        is SuspendResult.Success -> {
-                            suspendedRecords.add(
-                                ManagedSidRecord(
-                                    workspaceId = workspaceId,
-                                    sessionHandle = session.mHandle,
-                                    shellPid = shellPid,
-                                    sid = res.sid,
-                                    pids = res.pids,
-                                    shellStartTimeTicks = res.shellStartTimeTicks,
-                                    pidStartTimeTicks = res.pidStartTimeTicks
+            try {
+                withContext(Dispatchers.IO) {
+                    for (session in liveSessions) {
+                        currentCoroutineContext().ensureActive()
+                        currentAttemptSession = session
+                        val shellPid = session.pid
+                        when (val res = ProcSessionController.suspendSession(shellPid, ownerUid, ops)) {
+                            is SuspendResult.Success -> {
+                                suspendedRecords.add(
+                                    ManagedSidRecord(
+                                        workspaceId = workspaceId,
+                                        sessionHandle = session.mHandle,
+                                        shellPid = shellPid,
+                                        sid = res.sid,
+                                        pids = res.pids,
+                                        shellStartTimeTicks = res.shellStartTimeTicks,
+                                        pidStartTimeTicks = res.pidStartTimeTicks
+                                    )
                                 )
-                            )
-                        }
-                        is SuspendResult.Failed -> {
-                            failureReason = res.reason
-                            break
+                                currentAttemptSession = null
+                            }
+                            is SuspendResult.Failed -> {
+                                currentAttemptSession = null
+                                failureReason = res.reason
+                                break
+                            }
                         }
                     }
-                }
 
-                if (failureReason != null) {
-                    // Fail closed: resume any already-stopped sessions and drop persisted records.
+                    if (failureReason != null) {
+                        // Fail closed: resume any already-stopped sessions and drop persisted records.
+                        for (rec in suspendedRecords) {
+                            ProcSessionController.resumeSession(rec.pids, rec.sid, ownerUid, ops)
+                        }
+                        removeRecordsForWorkspace(workspaceId)
+                    } else {
+                        currentCoroutineContext().ensureActive()
+                        replaceRecordsForWorkspace(workspaceId, suspendedRecords)
+                    }
+                }
+            } catch (t: Throwable) {
+                val fallbackState = if (t is CancellationException) {
+                    WorkspaceSleepState.AWAKE
+                } else {
+                    WorkspaceSleepState.ERROR
+                }
+                withContext(NonCancellable + Dispatchers.IO) {
                     for (rec in suspendedRecords) {
                         ProcSessionController.resumeSession(rec.pids, rec.sid, ownerUid, ops)
                     }
+                    val inFlight = currentAttemptSession
+                    if (inFlight != null && inFlight.pid > 1) {
+                        val pid = inFlight.pid
+                        val uid = ops.readProcUid(pid)
+                        val stat = ops.readProcStat(pid)
+                        val info = if (uid == ownerUid && stat != null) {
+                            ProcSessionController.parseProcStat(pid, stat, uid)
+                        } else {
+                            null
+                        }
+                        if (info != null && info.sid > 0 && info.pgid > 0) {
+                            ProcSessionController.resumeSession(listOf(pid), info.sid, ownerUid, ops)
+                        }
+                    }
                     removeRecordsForWorkspace(workspaceId)
-                } else {
-                    replaceRecordsForWorkspace(workspaceId, suspendedRecords)
+                    liveSessions.forEach { it.setInputGated(false) }
+                    WorkspaceManager.setSleepState(workspaceId, fallbackState)
                 }
+                throw t
             }
 
             if (failureReason != null) {
@@ -117,6 +163,15 @@ class WorkspaceHibernationController(
         sessions: List<TerminalSession>
     ): WorkspaceSleepState {
         return mutexFor(workspaceId).withLock {
+            if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) {
+                withContext(Dispatchers.IO) {
+                    removeRecordsForWorkspace(workspaceId)
+                }
+                sessions.forEach { it.setInputGated(false) }
+                WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE)
+                return@withLock WorkspaceSleepState.AWAKE
+            }
+
             val currentState = WorkspaceManager.getSleepState(workspaceId)
             val persistedRecords = loadRecordsForWorkspace(workspaceId)
             if (currentState == WorkspaceSleepState.AWAKE &&
@@ -129,34 +184,42 @@ class WorkspaceHibernationController(
             val ownerUid = ownerUidProvider()
             WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.RESUMING)
 
-            val allResumed = withContext(Dispatchers.IO) {
-                val sidToPids = LinkedHashMap<Int, List<Int>>()
-                for (rec in persistedRecords) {
-                    sidToPids[rec.sid] = rec.pids
-                }
-                for (session in sessions) {
-                    val pid = session.pid
-                    if (pid <= 1) continue
-                    val uid = ops.readProcUid(pid) ?: continue
-                    if (uid != ownerUid) continue
-                    val stat = ops.readProcStat(pid) ?: continue
-                    val info = ProcSessionController.parseProcStat(pid, stat, uid) ?: continue
-                    if (info.sid > 0 && info.pgid > 0 && info.sid !in sidToPids) {
-                        sidToPids[info.sid] = listOf(pid)
+            val allResumed = try {
+                withContext(Dispatchers.IO) {
+                    val sidToPids = LinkedHashMap<Int, List<Int>>()
+                    for (rec in persistedRecords) {
+                        sidToPids[rec.sid] = rec.pids
                     }
-                }
+                    for (session in sessions) {
+                        val pid = session.pid
+                        if (pid <= 1) continue
+                        val uid = ops.readProcUid(pid) ?: continue
+                        if (uid != ownerUid) continue
+                        val stat = ops.readProcStat(pid) ?: continue
+                        val info = ProcSessionController.parseProcStat(pid, stat, uid) ?: continue
+                        if (info.sid > 0 && info.pgid > 0 && info.sid !in sidToPids) {
+                            sidToPids[info.sid] = listOf(pid)
+                        }
+                    }
 
-                var ok = true
-                for ((sid, pids) in sidToPids) {
-                    val res = ProcSessionController.resumeSession(pids, sid, ownerUid, ops)
-                    if (res is ResumeResult.Failed) {
-                        ok = false
+                    var ok = true
+                    for ((sid, pids) in sidToPids) {
+                        val res = ProcSessionController.resumeSession(pids, sid, ownerUid, ops)
+                        if (res is ResumeResult.Failed) {
+                            ok = false
+                        }
                     }
+                    if (ok) {
+                        removeRecordsForWorkspace(workspaceId)
+                    }
+                    ok
                 }
-                if (ok) {
-                    removeRecordsForWorkspace(workspaceId)
-                }
-                ok
+            } catch (t: Throwable) {
+                WorkspaceManager.setSleepState(
+                    workspaceId,
+                    if (t is CancellationException) currentState else WorkspaceSleepState.ERROR
+                )
+                throw t
             }
 
             if (allResumed) {
@@ -176,6 +239,18 @@ class WorkspaceHibernationController(
         sessions: List<TerminalSession>
     ): Boolean {
         return mutexFor(workspaceId).withLock {
+            if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) {
+                sessions.forEach {
+                    it.setInputGated(false)
+                    it.finishIfRunning()
+                }
+                withContext(Dispatchers.IO) {
+                    removeRecordsForWorkspace(workspaceId)
+                }
+                WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.AWAKE)
+                return@withLock true
+            }
+
             val ownerUid = ownerUidProvider()
             val persistedRecords = loadRecordsForWorkspace(workspaceId)
             sessions.forEach { it.setInputGated(true) }
@@ -230,12 +305,22 @@ class WorkspaceHibernationController(
         session: TerminalSession
     ): Boolean {
         return mutexFor(workspaceId).withLock {
+            if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) {
+                session.setInputGated(false)
+                session.finishIfRunning()
+                withContext(Dispatchers.IO) {
+                    removeRecordByHandle(workspaceId, session.mHandle)
+                }
+                return@withLock true
+            }
+
+            val priorState = WorkspaceManager.getSleepState(workspaceId)
             val ownerUid = ownerUidProvider()
             session.setInputGated(true)
             val persisted = loadRecordsForWorkspace(workspaceId)
                 .firstOrNull { it.sessionHandle == session.mHandle }
 
-            withContext(Dispatchers.IO) {
+            val terminated = withContext(Dispatchers.IO) {
                 val pid = session.pid
                 val targetSid: Int
                 val targetPids: List<Int>
@@ -247,7 +332,10 @@ class WorkspaceHibernationController(
                     val uid = ops.readProcUid(pid)
                     val stat = ops.readProcStat(pid)
                     if (uid == null || stat == null) {
-                        // Process already gone.
+                        // Process already gone (only if /proc itself isn't blocked).
+                        if (ops.listProcPids() == null) {
+                            return@withContext false
+                        }
                         removeRecordByHandle(workspaceId, session.mHandle)
                         return@withContext true
                     }
@@ -276,10 +364,20 @@ class WorkspaceHibernationController(
                     false
                 }
             }
+
+            if (!terminated) {
+                if (priorState != WorkspaceSleepState.SLEEPING) {
+                    session.setInputGated(false)
+                }
+                WorkspaceManager.setSleepState(workspaceId, WorkspaceSleepState.ERROR)
+            }
+            terminated
         }
     }
 
     suspend fun reconcileColdStartLeakedProcesses(ownerUid: Int) {
+        if (!BeTermuxSettings.isWorkspaceHibernationEnabled(appContext)) return
+
         val allRecords = loadAllRecords()
         if (allRecords.isEmpty()) return
 
@@ -287,15 +385,21 @@ class WorkspaceHibernationController(
             mutexFor(record.workspaceId).withLock {
                 withContext(Dispatchers.IO) {
                     if (isVerifiedLeakedStoppedSession(record, ownerUid)) {
-                        ProcSessionController.terminateSession(
+                        val res = ProcSessionController.terminateSession(
                             recordedPids = record.pids,
                             sid = record.sid,
                             ownerUid = ownerUid,
                             timeoutMs = terminationTimeoutMs,
                             ops = ops
                         )
+                        if (res is TerminateResult.Success) {
+                            removeRecordByHandle(record.workspaceId, record.sessionHandle)
+                        } else {
+                            WorkspaceManager.setSleepState(record.workspaceId, WorkspaceSleepState.ERROR)
+                        }
+                    } else {
+                        removeRecordByHandle(record.workspaceId, record.sessionHandle)
                     }
-                    removeRecordByHandle(record.workspaceId, record.sessionHandle)
                 }
             }
         }

@@ -5,6 +5,9 @@ import android.system.OsConstants
 import com.betermux.features.BeTermuxSettings
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Before
@@ -42,7 +45,8 @@ class WorkspaceHibernationTest {
 
     private class FakeProcessOps(
         initialProcesses: List<FakeProcess> = emptyList(),
-        var procBlocked: Boolean = false
+        var procBlocked: Boolean = false,
+        var onSignalSent: ((pid: Int, signal: Int) -> Unit)? = null
     ) : ProcessOps {
         val processes = linkedMapOf<Int, FakeProcess>().apply {
             initialProcesses.forEach { put(it.pid, it) }
@@ -94,7 +98,9 @@ class WorkspaceHibernationTest {
                     processes.remove(pid)
                 }
             }
-            return SignalStatus.OK
+            return SignalStatus.OK.also {
+                onSignalSent?.invoke(pid, signal)
+            }
         }
 
         override fun sleepMs(millis: Long) {
@@ -344,5 +350,186 @@ class WorkspaceHibernationTest {
         runBlocking { controller4.reconcileColdStartLeakedProcesses(10912) }
         assertTrue("Reused PID with different startTimeTicks must never be signaled", opsReused.recordedSignals.isEmpty())
         assertEquals(1, opsReused.processes.size)
+    }
+
+    @Test
+    fun coldStartReconciliationRetainsRecordAndSetsErrorWhenTerminationFails() {
+        val ops1 = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 700, comm = "bash", state = 'S', ppid = 1, pgid = 700, sid = 700, uid = 10912, startTimeTicks = 4444L)
+            )
+        )
+        val ws = WorkspaceManager.createWorkspace("ColdFail", "/tmp/coldfail")
+        val session = newTestSession(700)
+        val controller1 = WorkspaceHibernationController(context, ops1, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, runBlocking { controller1.sleepWorkspace(ws.id, listOf(session)) })
+
+        val opsColdFail = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 700, comm = "bash", state = 'T', ppid = 1, pgid = 700, sid = 700, uid = 10912, startTimeTicks = 4444L)
+            )
+        )
+        opsColdFail.failNextSignalWithEperm = true
+        val controller2 = WorkspaceHibernationController(context, opsColdFail, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        runBlocking { controller2.reconcileColdStartLeakedProcesses(10912) }
+
+        assertEquals(WorkspaceSleepState.ERROR, WorkspaceManager.getSleepState(ws.id))
+        val rawPrefs = context.getSharedPreferences("betermux_hibernation_sids", Context.MODE_PRIVATE)
+            .getString("managed_sids_json", null)
+        assertNotNull("Persisted SID record must be retained on failed cold-start termination", rawPrefs)
+        assertTrue(rawPrefs!!.contains("\"sid\":700"))
+    }
+
+    @Test
+    fun terminateSingleSessionSuccessAndFailurePaths() {
+        // Success path on a sleeping workspace with 2 sessions: removes only the closed session's record.
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 800, comm = "bash", state = 'S', ppid = 1, pgid = 800, sid = 800, uid = 10912, startTimeTicks = 1000L),
+                FakeProcess(pid = 810, comm = "bash", state = 'S', ppid = 1, pgid = 810, sid = 810, uid = 10912, startTimeTicks = 1001L)
+            )
+        )
+        val ws = WorkspaceManager.createWorkspace("SingleTerm", "/tmp/singleterm")
+        val s1 = newTestSession(800)
+        val s2 = newTestSession(810)
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, runBlocking { controller.sleepWorkspace(ws.id, listOf(s1, s2)) })
+
+        val ok = runBlocking { controller.terminateSingleSession(ws.id, s1) }
+        assertTrue(ok)
+        assertFalse(ops.processes.containsKey(800))
+        assertTrue(ops.processes.containsKey(810))
+        val rawPrefs = context.getSharedPreferences("betermux_hibernation_sids", Context.MODE_PRIVATE)
+            .getString("managed_sids_json", null)
+        assertNotNull(rawPrefs)
+        assertFalse(rawPrefs!!.contains("\"sid\":800"))
+        assertTrue(rawPrefs.contains("\"sid\":810"))
+
+        // Failure path on AWAKE workspace: sets ERROR and un-gates session.
+        val wsFail = WorkspaceManager.createWorkspace("SingleFail", "/tmp/singlefail")
+        val opsFail = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 820, comm = "bash", state = 'S', ppid = 1, pgid = 820, sid = 820, uid = 10912, startTimeTicks = 1002L)
+            )
+        )
+        opsFail.failNextSignalWithEperm = true
+        val sFail = newTestSession(820)
+        val failController = WorkspaceHibernationController(context, opsFail, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        val failedResult = runBlocking { failController.terminateSingleSession(wsFail.id, sFail) }
+        assertFalse(failedResult)
+        assertEquals(WorkspaceSleepState.ERROR, WorkspaceManager.getSleepState(wsFail.id))
+        assertFalse("Input gate must be cleared when single-session termination fails on non-sleeping workspace", sFail.isInputGated)
+    }
+
+    @Test
+    fun hibernationFlagDisabledSuppressesAllSignalPathsAndResetsStaleState() {
+        val ws = WorkspaceManager.createWorkspace("RollbackAll", "/tmp/rollback")
+        // Seed sleeping state + persisted record while enabled.
+        val opsSeed = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 900, comm = "bash", state = 'S', ppid = 1, pgid = 900, sid = 900, uid = 10912, startTimeTicks = 2000L)
+            )
+        )
+        val sSeed = newTestSession(900)
+        val seedController = WorkspaceHibernationController(context, opsSeed, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+        assertEquals(WorkspaceSleepState.SLEEPING, runBlocking { seedController.sleepWorkspace(ws.id, listOf(sSeed)) })
+        assertTrue(sSeed.isInputGated)
+
+        // Flip rollback flag OFF and verify ALL paths emit zero ProcSessionController signals.
+        BeTermuxSettings.setWorkspaceHibernationEnabled(context, false)
+        val opsFlagOff = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 900, comm = "bash", state = 'T', ppid = 1, pgid = 900, sid = 900, uid = 10912, startTimeTicks = 2000L)
+            )
+        )
+        // Use a PID > Linux PID_MAX so legacy finishIfRunning() is harmless in unit tests.
+        val sessionFlagOff = newTestSession(999_999_999).apply { setInputGated(true) }
+        val controller = WorkspaceHibernationController(context, opsFlagOff, ownerUidProvider = { 10912 }, terminationTimeoutMs = 100L)
+
+        // sleepWorkspace resets stale SLEEPING/ERROR -> AWAKE and un-gates.
+        assertEquals(WorkspaceSleepState.AWAKE, runBlocking { controller.sleepWorkspace(ws.id, listOf(sessionFlagOff)) })
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        assertFalse(sessionFlagOff.isInputGated)
+
+        // wakeWorkspace un-gates and sets AWAKE with zero SIGCONT.
+        WorkspaceManager.setSleepState(ws.id, WorkspaceSleepState.ERROR)
+        sessionFlagOff.setInputGated(true)
+        assertEquals(WorkspaceSleepState.AWAKE, runBlocking { controller.wakeWorkspace(ws.id, listOf(sessionFlagOff)) })
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        assertFalse(sessionFlagOff.isInputGated)
+
+        // terminateWorkspaceSessions, terminateSingleSession, reconcileColdStartLeakedProcesses emit zero ProcSessionController signals.
+        assertTrue(runBlocking { controller.terminateWorkspaceSessions(ws.id, listOf(sessionFlagOff)) })
+        assertTrue(runBlocking { controller.terminateSingleSession(ws.id, sessionFlagOff) })
+        runBlocking { controller.reconcileColdStartLeakedProcesses(10912) }
+        assertTrue("Zero ProcSessionController signals allowed when hibernation flag is off", opsFlagOff.recordedSignals.isEmpty())
+    }
+
+    @Test
+    fun sleepWorkspaceCancellationRollsBackSigcontUngatesAndAvoidsSuspendingStuckState() {
+        var cancelTargetJob: Job? = null
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 910, comm = "bash", state = 'S', ppid = 1, pgid = 910, sid = 910, uid = 10912, startTimeTicks = 3000L),
+                FakeProcess(pid = 920, comm = "bash", state = 'S', ppid = 1, pgid = 920, sid = 920, uid = 10912, startTimeTicks = 3001L)
+            )
+        )
+        ops.onSignalSent = { pid, signal ->
+            if (pid == 910 && signal == OsConstants.SIGSTOP) {
+                cancelTargetJob?.cancel()
+            }
+        }
+        val ws = WorkspaceManager.createWorkspace("CancelSleep", "/tmp/cancelsleep")
+        val s1 = newTestSession(910)
+        val s2 = newTestSession(920)
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 })
+
+        var caughtCancellation = false
+        runBlocking {
+            val job = launch {
+                try {
+                    controller.sleepWorkspace(ws.id, listOf(s1, s2))
+                } catch (e: CancellationException) {
+                    caughtCancellation = true
+                    throw e
+                }
+            }
+            cancelTargetJob = job
+            job.join()
+        }
+
+        assertTrue("Expected CancellationException during sleepWorkspace", caughtCancellation)
+        assertNotEquals(WorkspaceSleepState.SUSPENDING, WorkspaceManager.getSleepState(ws.id))
+        assertEquals(WorkspaceSleepState.AWAKE, WorkspaceManager.getSleepState(ws.id))
+        assertFalse(s1.isInputGated)
+        assertFalse(s2.isInputGated)
+        assertEquals('S', ops.processes[910]?.state)
+        assertEquals('S', ops.processes[920]?.state)
+        assertTrue(ops.recordedSignals.any { it == (910 to OsConstants.SIGCONT) })
+        assertNull(
+            context.getSharedPreferences("betermux_hibernation_sids", Context.MODE_PRIVATE)
+                .getString("managed_sids_json", null)
+        )
+    }
+
+    @Test
+    fun wakeWorkspaceBlockedProcTransitionsToErrorAndKeepsInputGated() {
+        val ops = FakeProcessOps(
+            listOf(
+                FakeProcess(pid = 930, comm = "bash", state = 'S', ppid = 1, pgid = 930, sid = 930, uid = 10912, startTimeTicks = 4000L)
+            )
+        )
+        val ws = WorkspaceManager.createWorkspace("WakeFail", "/tmp/wakefail")
+        val session = newTestSession(930)
+        val controller = WorkspaceHibernationController(context, ops, ownerUidProvider = { 10912 })
+
+        assertEquals(WorkspaceSleepState.SLEEPING, runBlocking { controller.sleepWorkspace(ws.id, listOf(session)) })
+        assertTrue(session.isInputGated)
+
+        ops.procBlocked = true
+        val stateAfterWake = runBlocking { controller.wakeWorkspace(ws.id, listOf(session)) }
+        assertEquals(WorkspaceSleepState.ERROR, stateAfterWake)
+        assertEquals(WorkspaceSleepState.ERROR, WorkspaceManager.getSleepState(ws.id))
+        assertTrue("Session must remain gated when wake fails", session.isInputGated)
     }
 }
