@@ -484,6 +484,15 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                 liveHandles.add(session.getTerminalSession().mHandle);
             }
         }
+        reconcileAfterRestore(liveHandles);
+        // Restored sessions were initially saved before their snapshot workspace mapping was
+        // associated. Rewrite only after all associations have been reconciled so no restored
+        // entry loses its workspace ID or restored CWD in the next snapshot.
+        SessionStatePersister.save(this, new ArrayList<>(mShellManager.mTermuxSessions));
+    }
+
+    /** Finalizes restored workspace associations before the restored session list is persisted. */
+    static void reconcileAfterRestore(List<String> liveHandles) {
         WorkspaceManager.reconcileStartupSessions(liveHandles);
     }
 

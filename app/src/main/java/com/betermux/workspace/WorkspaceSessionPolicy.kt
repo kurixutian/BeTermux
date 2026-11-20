@@ -15,9 +15,9 @@ object WorkspaceSessionPolicy {
     /**
      * Resolves the working directory for a newly created terminal session.
      *
-     * When workspaces are enabled and [currentSessionHandle] is null or belongs to a
-     * different workspace than [activeWorkspace], defaults to [activeWorkspace.rootPath]
-     * if it is an existing directory, falling back to [defaultWorkingDirectory].
+     * When workspaces are enabled, always starts in [activeWorkspace.rootPath] if it is an
+     * existing directory, falling back to [defaultWorkingDirectory]. A new session must not
+     * inherit a current session's manually changed directory.
      */
     @JvmStatic
     @JvmOverloads
@@ -30,16 +30,7 @@ object WorkspaceSessionPolicy {
         directoryExists: (String) -> Boolean = { path -> File(path).isDirectory }
     ): String? {
         if (!workspacesEnabled) {
-            return if (currentSessionHandle == null) defaultWorkingDirectory else currentSessionCwd
-        }
-
-        val currentInActiveWorkspace = currentSessionHandle != null &&
-            currentSessionHandle in activeWorkspace.sessionHandles
-        if (currentInActiveWorkspace &&
-            !currentSessionCwd.isNullOrBlank() &&
-            directoryExists(currentSessionCwd)
-        ) {
-            return currentSessionCwd
+            return defaultWorkingDirectory
         }
 
         val root = activeWorkspace.rootPath.trim()

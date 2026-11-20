@@ -2,7 +2,6 @@ package com.termux.app.terminal;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -27,6 +26,7 @@ import com.termux.shared.interact.ShareUtils;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 import com.termux.shared.termux.interact.TextInputDialogUtils;
 import com.termux.app.TermuxActivity;
+import com.termux.app.TermuxDialogsCompose;
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.app.TermuxService;
@@ -425,8 +425,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         if (service == null) return;
 
         if (service.getTermuxSessionsSize() >= MAX_SESSIONS) {
-            new AlertDialog.Builder(mActivity).setTitle(R.string.title_max_terminals_reached).setMessage(R.string.msg_max_terminals_reached)
-                .setPositiveButton(android.R.string.ok, null).show();
+            showMaxTerminalsReachedDialog();
             return;
         }
 
@@ -446,13 +445,23 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         createSessionNow(isFailSafe, sessionName, onSessionCreated);
     }
 
+    private void showMaxTerminalsReachedDialog() {
+        TermuxDialogsCompose.showConfirmDialog(
+            mActivity,
+            mActivity.getString(R.string.title_max_terminals_reached),
+            mActivity.getString(R.string.msg_max_terminals_reached),
+            mActivity.getString(android.R.string.ok),
+            null,
+            false,
+            null);
+    }
+
     private void createSessionNow(boolean isFailSafe, String sessionName, @Nullable Runnable onSessionCreated) {
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
         if (service.getTermuxSessionsSize() >= MAX_SESSIONS) {
-            new AlertDialog.Builder(mActivity).setTitle(R.string.title_max_terminals_reached).setMessage(R.string.msg_max_terminals_reached)
-                .setPositiveButton(android.R.string.ok, null).show();
+            showMaxTerminalsReachedDialog();
             return;
         }
 

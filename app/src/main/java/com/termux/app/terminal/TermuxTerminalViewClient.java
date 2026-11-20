@@ -1,7 +1,6 @@
 package com.termux.app.terminal;
 
 import android.annotation.SuppressLint;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -17,7 +16,6 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.EditText;
-import android.widget.ListView;
 import android.widget.Toast;
 
 import java.io.File;
@@ -26,6 +24,7 @@ import java.util.regex.Pattern;
 
 import com.termux.R;
 import com.termux.app.TermuxActivity;
+import com.termux.app.TermuxDialogsCompose;
 import com.termux.shared.file.FileUtils;
 import com.termux.shared.interact.MessageDialogUtils;
 import com.termux.shared.interact.ShareUtils;
@@ -424,10 +423,11 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
             if (!file.exists()) return false;
 
             final java.io.File targetFile = file;
-            String[] options = {"Open file", "Open file path", "Copy file"};
-            new AlertDialog.Builder(mActivity)
-                .setTitle(targetFile.getName())
-                .setItems(options, (d, which) -> {
+            TermuxDialogsCompose.showActionListDialog(
+                mActivity,
+                targetFile.getName(),
+                new String[]{"Open file", "Open file path", "Copy file"},
+                which -> {
                     if (which == 0) {
                         mActivity.openFileTab(targetFile);
                     } else if (which == 1) {
@@ -436,8 +436,8 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
                     } else if (which == 2) {
                         ShareUtils.copyTextToClipboard(mActivity, targetFile.getAbsolutePath(), "Copied file path");
                     }
-                })
-                .show();
+                },
+                null);
             return true;
         } catch (Exception ex) {
             Logger.logError(LOG_TAG, "Error in handleTapOnText: " + ex.getMessage());
@@ -826,31 +826,36 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
         LinkedHashSet<CharSequence> urlSet = TermuxUrlUtils.extractUrls(text);
         if (urlSet.isEmpty()) {
-            new AlertDialog.Builder(mActivity).setMessage(R.string.title_select_url_none_found).show();
+            TermuxDialogsCompose.showConfirmDialog(
+                mActivity,
+                null,
+                mActivity.getString(R.string.title_select_url_none_found),
+                null,
+                null,
+                false,
+                null);
             return;
         }
 
-        final CharSequence[] urls = urlSet.toArray(new CharSequence[0]);
-        Collections.reverse(Arrays.asList(urls)); // Latest first.
+        final CharSequence[] urlArray = urlSet.toArray(new CharSequence[0]);
+        Collections.reverse(Arrays.asList(urlArray)); // Latest first.
+        final String[] urls = new String[urlArray.length];
+        for (int i = 0; i < urlArray.length; i++) {
+            urls[i] = urlArray[i].toString();
+        }
 
-        // Click to copy url to clipboard:
-        final AlertDialog dialog = new AlertDialog.Builder(mActivity).setItems(urls, (di, which) -> {
-            String url = (String) urls[which];
-            ShareUtils.copyTextToClipboard(mActivity, url, mActivity.getString(R.string.msg_select_url_copied_to_clipboard));
-        }).setTitle(R.string.title_select_url_dialog).create();
-
-        // Long press to open URL:
-        dialog.setOnShowListener(di -> {
-            ListView lv = dialog.getListView(); // this is a ListView with your "buds" in it
-            lv.setOnItemLongClickListener((parent, view, position, id) -> {
-                dialog.dismiss();
-                String url = (String) urls[position];
-                ShareUtils.openUrl(mActivity, url);
-                return true;
-            });
-        });
-
-        dialog.show();
+        // Click to copy url to clipboard; long press to open URL:
+        TermuxDialogsCompose.showActionListDialog(
+            mActivity,
+            mActivity.getString(R.string.title_select_url_dialog),
+            urls,
+            which -> ShareUtils.copyTextToClipboard(
+                mActivity,
+                urls[which],
+                mActivity.getString(R.string.msg_select_url_copied_to_clipboard)),
+            which -> ShareUtils.openUrl(mActivity, urls[which]),
+            "Copy URL",
+            "Open URL");
     }
 
     public void reportIssueFromTranscript() {

@@ -66,7 +66,7 @@ class WorkspaceSessionIntegrationTest {
         WorkspaceManager.associateSession("s-api-1")
         assertEquals(apiWorkspace.id, WorkspaceManager.workspaceForSession("s-api-1")?.id)
 
-        // 3) currentSession belongs to the active workspace -> preserves its CWD if valid directory
+        // 3) Current session's manually changed CWD must not leak into a new workspace session.
         val apiSubdir = tempFolder.newFolder("proj-api-sub").absolutePath
         val cwdWhenSameWorkspace = WorkspaceSessionPolicy.resolveNewSessionWorkingDirectory(
             workspacesEnabled = BeTermuxSettings.isWorkspacesEnabled(context),
@@ -75,7 +75,7 @@ class WorkspaceSessionIntegrationTest {
             currentSessionCwd = apiSubdir,
             defaultWorkingDirectory = "/fallback/home"
         )
-        assertEquals(apiSubdir, cwdWhenSameWorkspace)
+        assertEquals(projectRoot, cwdWhenSameWorkspace)
 
         // 3b) currentSession in active workspace with null/blank/invalid CWD -> falls back to active workspace rootPath
         val cwdWhenNullInSameWs = WorkspaceSessionPolicy.resolveNewSessionWorkingDirectory(
@@ -107,6 +107,40 @@ class WorkspaceSessionIntegrationTest {
             defaultWorkingDirectory = "/fallback/home"
         )
         assertEquals("/fallback/home", cwdWhenInvalidRoot)
+    }
+
+    @Test
+    fun newSessionInDefaultWorkspaceUsesConfiguredRootInsteadOfCurrentSessionCwd() {
+        val configuredDefaultRoot = tempFolder.newFolder("configured-home").absolutePath
+        val manuallyChangedCwd = tempFolder.newFolder("manual-cwd").absolutePath
+        WorkspaceManager.resetForTesting(context, configuredDefaultRoot)
+        WorkspaceManager.associateSession("default-1", DEFAULT_WORKSPACE_ID)
+
+        val cwd = WorkspaceSessionPolicy.resolveNewSessionWorkingDirectory(
+            workspacesEnabled = true,
+            activeWorkspace = WorkspaceManager.activeWorkspace(),
+            currentSessionHandle = "default-1",
+            currentSessionCwd = manuallyChangedCwd,
+            defaultWorkingDirectory = configuredDefaultRoot
+        )
+
+        assertEquals(configuredDefaultRoot, cwd)
+    }
+
+    @Test
+    fun newSessionWithWorkspacesDisabledUsesDefaultRootInsteadOfCurrentSessionCwd() {
+        val configuredDefaultRoot = tempFolder.newFolder("flat-home").absolutePath
+        val manuallyChangedCwd = tempFolder.newFolder("flat-manual-cwd").absolutePath
+
+        val cwd = WorkspaceSessionPolicy.resolveNewSessionWorkingDirectory(
+            workspacesEnabled = false,
+            activeWorkspace = WorkspaceManager.activeWorkspace(),
+            currentSessionHandle = "current-session",
+            currentSessionCwd = manuallyChangedCwd,
+            defaultWorkingDirectory = configuredDefaultRoot
+        )
+
+        assertEquals(configuredDefaultRoot, cwd)
     }
 
     @Test

@@ -10,6 +10,8 @@ import android.view.ViewGroup.LayoutParams;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 
+import com.termux.shared.compose.SharedComposeDialogHost;
+
 public final class TextInputDialogUtils {
 
     public interface TextSetListener {
@@ -21,6 +23,23 @@ public final class TextInputDialogUtils {
                                  int neutralButtonText, final TextSetListener onNeutral,
                                  int negativeButtonText, final TextSetListener onNegative,
                                  final DialogInterface.OnDismissListener onDismiss) {
+        if (activity == null || SharedComposeDialogHost.isFinishingOrDestroyed(activity))
+            return;
+
+        String resolvedTitle = activity.getString(titleText);
+        String resolvedInitial = initialText != null ? initialText : "";
+        String resolvedPositive = activity.getString(positiveButtonText);
+        String resolvedNeutral = onNeutral != null ? activity.getString(neutralButtonText) : null;
+        String resolvedNegative = onNegative != null
+            ? activity.getString(negativeButtonText)
+            : activity.getString(android.R.string.cancel);
+
+        if (SharedTextInputComposeDialog.show(activity, resolvedTitle, resolvedInitial,
+            resolvedPositive, onPositive, resolvedNeutral, onNeutral,
+            resolvedNegative, onNegative, onDismiss) != null) {
+            return;
+        }
+
         final EditText input = new EditText(activity);
         input.setSingleLine();
         if (initialText != null) {

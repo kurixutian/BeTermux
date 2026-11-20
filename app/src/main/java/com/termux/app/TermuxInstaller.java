@@ -1,8 +1,6 @@
 package com.termux.app;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.ProgressDialog;
 import android.content.Context;
 import android.os.Build;
 import android.os.Environment;
@@ -169,7 +167,7 @@ public final class TermuxInstaller {
             Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" does not exist but another file exists at its destination.");
         }
 
-        final ProgressDialog progress = ProgressDialog.show(activity, null, activity.getString(R.string.bootstrap_installer_body), true, false);
+        final android.app.Dialog progress = TermuxDialogsCompose.showProgressDialog(activity, activity.getString(R.string.bootstrap_installer_body));
         new Thread() {
             @Override
             public void run() {
@@ -287,10 +285,12 @@ public final class TermuxInstaller {
 
                 } finally {
                     activity.runOnUiThread(() -> {
-                        try {
-                            progress.dismiss();
-                        } catch (RuntimeException e) {
-                            // Activity already dismissed - ignore.
+                        if (progress != null) {
+                            try {
+                                progress.dismiss();
+                            } catch (RuntimeException e) {
+                                // Activity already dismissed - ignore.
+                            }
                         }
                     });
                 }
@@ -306,16 +306,10 @@ public final class TermuxInstaller {
 
         activity.runOnUiThread(() -> {
             try {
-                new AlertDialog.Builder(activity).setTitle(R.string.bootstrap_error_title).setMessage(R.string.bootstrap_error_body)
-                    .setNegativeButton(R.string.bootstrap_error_abort, (dialog, which) -> {
-                        dialog.dismiss();
-                        activity.finish();
-                    })
-                    .setPositiveButton(R.string.bootstrap_error_try_again, (dialog, which) -> {
-                        dialog.dismiss();
-                        FileUtils.deleteFile("termux prefix directory", TERMUX_PREFIX_DIR_PATH, true);
-                        TermuxInstaller.setupBootstrapIfNeeded(activity, whenDone);
-                    }).show();
+                BootstrapErrorComposeDialog.show(activity, activity::finish, () -> {
+                    FileUtils.deleteFile("termux prefix directory", TERMUX_PREFIX_DIR_PATH, true);
+                    TermuxInstaller.setupBootstrapIfNeeded(activity, whenDone);
+                });
             } catch (WindowManager.BadTokenException e1) {
                 // Activity already dismissed - ignore.
             }
