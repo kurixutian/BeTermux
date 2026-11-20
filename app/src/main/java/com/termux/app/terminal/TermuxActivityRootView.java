@@ -320,7 +320,7 @@ public class TermuxActivityRootView extends LinearLayout implements ViewTreeObse
 
         @Override
         public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
-            WindowInsetsCompat compat = WindowInsetsCompat.toWindowInsetsCompat(insets);
+            WindowInsetsCompat compat = WindowInsetsCompat.toWindowInsetsCompat(insets, v);
             mStatusBarHeight = compat.getInsets(WindowInsetsCompat.Type.statusBars()).top;
             if (mActivity != null)
                 mActivity.onImeInsetsChanged(compat);

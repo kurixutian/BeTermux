@@ -1,20 +1,13 @@
 package com.termux.shared.activities;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.view.Menu;
-import android.view.MenuInflater;
-import android.view.MenuItem;
 
 import com.termux.shared.R;
 import com.termux.shared.activity.media.AppCompatActivityUtils;
@@ -24,17 +17,11 @@ import com.termux.shared.file.filesystem.FileType;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.errors.Error;
 import com.termux.shared.termux.TermuxConstants;
-import com.termux.shared.markdown.MarkdownUtils;
 import com.termux.shared.interact.ShareUtils;
 import com.termux.shared.models.ReportInfo;
 import com.termux.shared.theme.NightMode;
 
-import org.commonmark.node.FencedCodeBlock;
 import org.jetbrains.annotations.NotNull;
-
-import io.noties.markwon.Markwon;
-import io.noties.markwon.recycler.MarkwonAdapter;
-import io.noties.markwon.recycler.SimpleEntry;
 
 /**
  * An activity to show reports in markdown format as per CommonMark spec based on config passed as {@link ReportInfo}.
@@ -66,6 +53,7 @@ public class ReportActivity extends AppCompatActivity {
     private String mReportInfoFilePath;
     private String mReportActivityMarkdownString;
     private Bundle mBundle;
+    private final ReportComposeState mComposeState = new ReportComposeState();
 
     private static final String LOG_TAG = "ReportActivity";
 
@@ -76,12 +64,21 @@ public class ReportActivity extends AppCompatActivity {
 
         AppCompatActivityUtils.setNightMode(this, NightMode.getAppNightMode().getName(), true);
 
-        setContentView(R.layout.activity_report);
-
-        Toolbar toolbar = findViewById(R.id.toolbar);
-        if (toolbar != null) {
-            setSupportActionBar(toolbar);
-        }
+        ReportComposeInstaller.setContent(this, mComposeState,
+            () -> {
+                if (mReportInfo == null) return;
+                ShareUtils.shareText(this, getString(R.string.title_report_text), ReportInfo.getReportInfoMarkdownString(mReportInfo));
+            },
+            () -> {
+                if (mReportInfo == null) return;
+                ShareUtils.copyTextToClipboard(this, ReportInfo.getReportInfoMarkdownString(mReportInfo), null);
+            },
+            () -> {
+                if (mReportInfo == null) return;
+                ShareUtils.saveTextToFile(this, mReportInfo.reportSaveFileLabel,
+                    mReportInfo.reportSaveFilePath, ReportInfo.getReportInfoMarkdownString(mReportInfo),
+                    true, REQUEST_GRANT_STORAGE_PERMISSION_FOR_SAVE_FILE);
+            });
 
         mBundle = null;
         Intent intent = getIntent();
@@ -145,39 +142,25 @@ public class ReportActivity extends AppCompatActivity {
         }
 
 
-        final ActionBar actionBar = getSupportActionBar();
-        if (actionBar != null) {
-            if (mReportInfo.reportTitle != null)
-                actionBar.setTitle(mReportInfo.reportTitle);
-            else
-                actionBar.setTitle(TermuxConstants.TERMUX_APP_NAME + " App Report");
-        }
-
-
-        RecyclerView recyclerView = findViewById(R.id.recycler_view);
-
-        final Markwon markwon = MarkdownUtils.getRecyclerMarkwonBuilder(this);
-
-        final MarkwonAdapter adapter = MarkwonAdapter.builderTextViewIsRoot(R.layout.markdown_adapter_node_default)
-            .include(FencedCodeBlock.class, SimpleEntry.create(R.layout.markdown_adapter_node_code_block, R.id.code_text_view))
-            .build();
-
-        recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        recyclerView.setAdapter(adapter);
+        String title = mReportInfo.reportTitle != null
+            ? mReportInfo.reportTitle
+            : TermuxConstants.TERMUX_APP_NAME + " App Report";
+        boolean canSave = mReportInfo.reportSaveFilePath != null;
 
         generateReportActivityMarkdownString();
-        adapter.setMarkdown(markwon, mReportActivityMarkdownString);
-        adapter.notifyDataSetChanged();
+        mComposeState.update(title, mReportActivityMarkdownString, canSave);
     }
 
 
     @Override
     public void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (mBundle.containsKey(EXTRA_REPORT_INFO_OBJECT_FILE_PATH)) {
-            outState.putString(EXTRA_REPORT_INFO_OBJECT_FILE_PATH, mReportInfoFilePath);
-        } else {
-            outState.putSerializable(EXTRA_REPORT_INFO_OBJECT, mReportInfo);
+        if (mBundle != null) {
+            if (mBundle.containsKey(EXTRA_REPORT_INFO_OBJECT_FILE_PATH)) {
+                outState.putString(EXTRA_REPORT_INFO_OBJECT_FILE_PATH, mReportInfoFilePath);
+            } else {
+                outState.putSerializable(EXTRA_REPORT_INFO_OBJECT, mReportInfo);
+            }
         }
     }
 
@@ -190,39 +173,9 @@ public class ReportActivity extends AppCompatActivity {
     }
 
     @Override
-    public boolean onCreateOptionsMenu(final Menu menu) {
-        final MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.menu_report, menu);
-
-        if (mReportInfo.reportSaveFilePath == null) {
-            MenuItem item = menu.findItem(R.id.menu_item_save_report_to_file);
-            if (item != null)
-                item.setEnabled(false);
-        }
-
-        return true;
-    }
-
-    @Override
     public void onBackPressed() {
         // Remove activity from recents menu on back button press
         finishAndRemoveTask();
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(final MenuItem item) {
-        int id = item.getItemId();
-        if (id == R.id.menu_item_share_report) {
-            ShareUtils.shareText(this, getString(R.string.title_report_text), ReportInfo.getReportInfoMarkdownString(mReportInfo));
-        } else if (id == R.id.menu_item_copy_report) {
-            ShareUtils.copyTextToClipboard(this, ReportInfo.getReportInfoMarkdownString(mReportInfo), null);
-        } else if (id == R.id.menu_item_save_report_to_file) {
-            ShareUtils.saveTextToFile(this, mReportInfo.reportSaveFileLabel,
-                mReportInfo.reportSaveFilePath, ReportInfo.getReportInfoMarkdownString(mReportInfo),
-                true, REQUEST_GRANT_STORAGE_PERMISSION_FOR_SAVE_FILE);
-        }
-
-        return false;
     }
 
     @Override
@@ -230,7 +183,7 @@ public class ReportActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             Logger.logInfo(LOG_TAG, "Storage permission granted by user on request.");
-            if (requestCode == REQUEST_GRANT_STORAGE_PERMISSION_FOR_SAVE_FILE) {
+            if (requestCode == REQUEST_GRANT_STORAGE_PERMISSION_FOR_SAVE_FILE && mReportInfo != null) {
                 ShareUtils.saveTextToFile(this, mReportInfo.reportSaveFileLabel,
                     mReportInfo.reportSaveFilePath, ReportInfo.getReportInfoMarkdownString(mReportInfo),
                     true, -1);

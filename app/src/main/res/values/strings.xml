@@ -244,8 +244,65 @@
     <string name="battery_opt_prompt_later">Not now</string>
 
     <!-- Dual Sidebars & Project Workspaces -->
+    <string name="toolbar_workspace_drawer">Open workspace session drawer</string>
+    <string name="toolbar_extra_keys">Toggle Extra Keys</string>
+    <string name="toolbar_localhost">Localhost Servers</string>
+    <string name="toolbar_more_options">More Options</string>
+    <string name="close_tab">Close tab</string>
     <string name="open_project_files_drawer">Open project files drawer</string>
     <string name="close_project_files_drawer">Close project files drawer</string>
     <string name="files_menu_description">Files</string>
+    <string name="menu_project_directory">Project directory</string>
+    <string name="menu_file_manager">File manager</string>
+    <string name="menu_quick_commands">Quick Commands</string>
+    <string name="menu_new_dev_browser_tab">New Dev Browser Tab</string>
+    <string name="menu_package_manager">Package Manager</string>
+    <string name="menu_clear_terminal">Clear Terminal</string>
+    <string name="menu_upload_image">Upload / Paste Image</string>
+    <string name="menu_speech_to_text">Speech to Text</string>
+    <string name="menu_toggle_autocorrect">Toggle Autocorrect</string>
+    <string name="menu_tips_and_shortcuts">Tips &amp; Shortcuts</string>
+    <string name="menu_new_terminal_tab">New Terminal Tab</string>
+    <string name="menu_rename">Rename</string>
+    <string name="menu_close">Close</string>
+    <string name="menu_reload">Reload</string>
+    <string name="menu_new_browser_tab">New Browser Tab</string>
+    <string name="menu_close_tab">Close Tab</string>
+    <string name="menu_close_others">Close Others</string>
+    <string name="menu_share_file">Share File</string>
+    <string name="menu_copy_path">Copy Path</string>
+    <string name="menu_stop_server">Stop Server</string>
+    <string name="menu_open_dev_browser">Open in Dev Browser</string>
+    <string name="menu_open_localhost_tab">Open Localhost Tab</string>
+    <string name="show_controls_second_screen">Show controls on the second screen</string>
+    <string name="localhost_port_label">Localhost port</string>
+    <string name="new_tab_action">New tab</string>
+    <string name="tab_kind_terminal">Terminal tab</string>
+    <string name="tab_kind_browser">Browser tab</string>
+    <string name="tab_kind_file">File tab</string>
+    <string name="tab_kind_localhost">Localhost tab</string>
+    <string name="tab_status_processing">Processing</string>
+    <string name="tab_status_finished">Finished</string>
+    <string name="tab_status_standby">Standby</string>
+    <string name="autocorrect_apply">Apply</string>
+    <string name="autocorrect_dismiss">Dismiss suggestion</string>
+    <string name="autocorrect_did_you_mean">Did you mean: %1$s?</string>
+
+    <!-- Color picker -->
+    <string name="color_picker_style_title">Choose Picker Style</string>
+    <string name="color_picker_hsv_title">Custom Color (HSV)</string>
+    <string name="color_picker_rgb_title">Custom Color (RGB)</string>
+    <string name="color_picker_hsv_option">Color Wheel (HSV)</string>
+    <string name="color_picker_rgb_option">RGB Sliders</string>
+    <string name="color_picker_cancel">Cancel</string>
+    <string name="color_picker_next">Next</string>
+    <string name="color_picker_ok">OK</string>
+    <string name="color_picker_preview">Selected color preview</string>
+    <string name="color_picker_brightness">Brightness</string>
+    <string name="color_picker_red">Red</string>
+    <string name="color_picker_green">Green</string>
+    <string name="color_picker_blue">Blue</string>
+    <string name="color_picker_hex_label">Hex color (#RRGGBB)</string>
+    <string name="color_picker_wheel_description">Hue and saturation color wheel</string>
 
 </resources>

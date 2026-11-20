@@ -1,3 +1,4 @@
+<!-- Single insets owner: TermuxActivityRootView + adjustResize + bottom_space_view; Compose chrome must not add systemBars/ime padding -->
 <com.termux.app.terminal.TermuxActivityRootView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -7,8 +8,16 @@
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
-    <include layout="@layout/betermux_toolbar" />
-    <include layout="@layout/betermux_autocorrect_bar" />
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/betermux_toolbar_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <com.termux.app.AutoCorrectComposeBar
+        android:id="@+id/autocorrect_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
 
     <RelativeLayout
         android:id="@+id/activity_termux_root_relative_layout"
@@ -85,17 +94,13 @@
             android:background="@color/nt_tab_bg"
             android:layout_alignParentBottom="true" />
 
-        <androidx.compose.ui.platform.ComposeView
-            android:id="@+id/floating_edit_overlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_alignParentTop="true"
-            android:layout_above="@+id/terminal_toolbar_view_pager"
-            android:visibility="gone" />
-
     </RelativeLayout>
 
-    <include layout="@layout/betermux_status_line" />
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/betermux_status_line"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
 
     <View
         android:id="@+id/activity_termux_bottom_space_view"

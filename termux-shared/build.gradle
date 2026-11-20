@@ -1,5 +1,7 @@
 apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
 android {
     namespace = "com.termux.shared"
@@ -56,8 +58,33 @@ android {
         // Flag to enable support for the new language APIs
         coreLibraryDesugaringEnabled true
 
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            all {
+                systemProperty "robolectric.enabledSdks", "28"
+                def osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
+                def osArch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT)
+                if (osName.contains("linux") && (osArch == "aarch64" || osArch == "arm64")) {
+                    // Nativeruntime/conscrypt artifacts lack linux-aarch64 natives on Android/Termux JDK hosts.
+                    systemProperty "robolectric.conscryptMode", "OFF"
+                    systemProperty "robolectric.graphicsMode", "LEGACY"
+                    systemProperty "robolectric.sqliteMode", "LEGACY"
+                }
+            }
+        }
     }
 
     if (!file("src/main/jniLibs").exists()) {
@@ -71,21 +98,25 @@ android {
     publishing {
         multipleVariants {
             withSourcesJar()
-            withJavadocJar()
             allVariants()
         }
     }
 }
 
 dependencies {
+    def composeBom = platform("androidx.compose:compose-bom:2025.06.01")
+    implementation composeBom
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.material:material-icons-core"
+    implementation "androidx.activity:activity-compose:1.10.1"
+    debugImplementation "androidx.compose.ui:ui-test-manifest"
+
     testImplementation "junit:junit:4.13.2"
+    testImplementation "org.robolectric:robolectric:4.14.1"
+    testImplementation "androidx.compose.ui:ui-test-junit4"
     androidTestImplementation "androidx.test.ext:junit:1.1.5"
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:1.1.5"
-}
-
-task sourceJar(type: Jar) {
-    from android.sourceSets.main.java.srcDirs
-    archiveClassifier = "sources"
 }
 
 afterEvaluate {
@@ -97,7 +128,6 @@ afterEvaluate {
                 groupId = 'com.termux'
                 artifactId = 'termux-shared'
                 version = '0.118.0'
-                artifact(sourceJar)
             }
         }
     }
