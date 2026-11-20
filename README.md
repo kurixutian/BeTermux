@@ -99,6 +99,6 @@ Built APKs are written to `app/build/outputs/apk/release/`.
 
 ## Credits & license
 
-BeTermux is forked from [NewTermux](https://github.com/The412Banner/BeTermux) by The412Banner, based on the [**Termux**](https://github.com/termux/termux-app) open source project by Fredrik Fornwall, Henrik Grimler & the Termux community. All credit for the terminal engine and Linux environment belongs upstream.
+BeTermux is forked from the [**Termux**](https://github.com/termux/termux-app) open source project by Fredrik Fornwall, Henrik Grimler & the Termux community. All credit for the terminal engine and Linux environment belongs upstream.
 
 Licensed under the **GNU GPLv3**. See [LICENSE.md](LICENSE.md).
