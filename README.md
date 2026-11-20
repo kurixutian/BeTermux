@@ -6,7 +6,7 @@
 
 BeTermux is a customized terminal emulator for Android with a modern Warp-inspired interface, tabbed workflow, integrated Dev Browser with Eruda DevTools, enhanced File Manager with multi-format previews, and process termination safety. It installs under `com.termux` and remains 100% compatible with the entire [Termux package ecosystem](https://github.com/termux/termux-packages).
 
-> **Latest release:** `v2026.11.20-8f1b056` — [**Download the APK →**](https://github.com/kurixutian/BeTermux/releases/latest)
+> **Latest release:** `v2026.11.20-113789c` — [**Download the APK →**](https://github.com/kurixutian/BeTermux/releases/latest)
 
 ---
 
